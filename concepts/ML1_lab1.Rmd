@@ -1,0 +1,157 @@
+---
+title: "CEU Machine Learning Concepts - Lab 1"
+author: János Divényi
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+library(glmnet)
+theme_set(theme_minimal())
+```
+
+## Our problem
+
+Simple linear model
+
+$Y = X'\beta + \varepsilon = \beta_1 X_1 + \beta_2 X_2 + ... + \beta_p X_p + \varepsilon$
+
+Approximately sparse
+
+```{r}
+generateBeta <- function(beta_length) {
+    4 / seq(beta_length)^2
+}
+qplot(seq(20), generateBeta(20), geom = "col", xlab = "x[i]", ylab = "beta")
+```
+
+
+```{r}
+f_y_x <- function(x) {
+    beta <- generateBeta(dim(x)[2])  # approximately sparse model
+    x %*% beta
+}
+```
+
+
+
+
+## Recap: Prediction
+
+Construct a predictor
+$\hat Y = f(X)$
+
+$f^*(X) = X'\beta$
+
+instead estimate $\hat f(X)$
+
+error $f^*(X) - \hat f(X)$
+overall MSE: $\text{E} \left[\left(f^*(X) - \hat f(X)\right)^2\right]$
+
+for a given $x_0$ MSE:
+MSE $\text{E} \left[\left(f^*(x_0) - \hat f(x_0)\right)^2\right] =\ ...\ = \text{E}^2\left[f^*(x_0) - \hat f(x_0)\right] + \text{Var}\left(\hat f(x_0)\right)$
+
+
+
+## Penalized linear regression: LASSO
+
+```{r}
+n <- 200
+p <- 300
+x <- matrix(rnorm(n * p), nrow = n, ncol = p)	
+
+y_exp <- f_y_x(x)
+y <- y_exp + rnorm(n) * 4
+```
+
+```{r}
+calculateMSE <- function(prediction, y_exp) {
+    sqrt(mean((prediction - y_exp)^2))
+}
+```
+
+```{r}
+# Try some models and evaluate their overall performance
+```
+
+
+
+```{r}
+# Be systematic about choosing the best penalty parameter
+lambda_values <- seq(0, 1, 0.05)
+```
+
+## Simulation 
+
+```{r}
+# Write a simulator function that can evaluate a model for a given X
+# end result: lambda, prediction (f_star), error
+```
+
+```{r}
+visualize_simulation_results <- function(simulation_results) {
+    group_by(simulation_results, lambda) |>
+    summarise(bias2 = mean(error)^2, var = var(f_star)) |>
+    mutate(MSE = bias2 + var) |>
+    pivot_longer(bias2:MSE, names_to = "metric") |>
+    mutate(metric = factor(metric, levels = c("bias2", "var", "MSE"))) |>
+    ggplot(aes(lambda, value, color = metric)) + geom_line(size = 1)    
+}
+```
+
+
+### Scenario #1: Independent predictors
+
+```{r}
+generate_independent_predictors <- function(n = 200, p = 300) {
+    matrix(rnorm(n * p), nrow = n, ncol = p)
+}
+```
+
+
+```{r}
+x0 <- matrix(rep(0.1, p), ncol = p)
+simulation_results <- map_dfr(
+    1:100, 
+    ~run_simulation(
+        x_eval = x0, 
+        x_generator = generate_independent_predictors, 
+        lambdas = lambda_values
+    )
+)
+```
+
+
+```{r}
+visualize_simulation_results(simulation_results)
+```
+
+
+### Simulation scenario #2: Correlated predictors
+
+Having 10 predictors and try to estimate a very flexible model
+
+```{r}
+generate_correlated_predictors <- function(n = 200, p = 10) {
+    # for p = 10, there will be 285 features
+    poly(matrix(rnorm(n * p), nrow = n, ncol = p), degree = 3, raw = TRUE)
+}
+```
+
+```{r}
+x0 <- matrix(rep(0.1, dim(x)[2]), ncol = dim(x)[2])
+simulation_results <- map_dfr(
+    1:100, 
+    ~run_simulation(
+        x_eval = x0, 
+        x_generator = generate_correlated_predictors, 
+        lambdas = lambda_values
+    )
+)
+```
+
+
+```{r}
+visualize_simulation_results(simulation_results)
+```
