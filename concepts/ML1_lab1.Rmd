@@ -58,7 +58,7 @@ MSE $\text{E} \left[\left(f^*(x_0) - \hat f(x_0)\right)^2\right] =\ ...\ = \text
 
 ```{r}
 n <- 200
-p <- 300
+p <- 100
 x <- matrix(rnorm(n * p), nrow = n, ncol = p)	
 
 y_exp <- f_y_x(x)
@@ -87,6 +87,18 @@ lambda_values <- seq(0, 1, 0.05)
 ```{r}
 # Write a simulator function that can evaluate a model for a given X
 # end result: lambda, prediction (f_star), error
+run_simulation <- function(x_generator, x0 = 0.1, lambdas = seq(0, 0.6, 0.02)) {
+    # generate the sample
+    # x <-  
+    # y_exp <-
+    # y <- 
+    
+    # generate the x0 value
+    # x_eval <- matrix(x0, ncol = dim(x)[2])
+    
+    # run the simulation for each lambda and store the results
+    
+}
 ```
 
 ```{r}
@@ -111,14 +123,9 @@ generate_independent_predictors <- function(n = 200, p = 300) {
 
 
 ```{r}
-x0 <- matrix(rep(0.1, p), ncol = p)
 simulation_results <- map_dfr(
     1:100, 
-    ~run_simulation(
-        x_eval = x0, 
-        x_generator = generate_independent_predictors, 
-        lambdas = lambda_values
-    )
+    ~run_simulation(x_generator = generate_independent_predictors)
 )
 ```
 
@@ -140,14 +147,9 @@ generate_correlated_predictors <- function(n = 200, p = 10) {
 ```
 
 ```{r}
-x0 <- matrix(rep(0.1, dim(x)[2]), ncol = dim(x)[2])
 simulation_results <- map_dfr(
     1:100, 
-    ~run_simulation(
-        x_eval = x0, 
-        x_generator = generate_correlated_predictors, 
-        lambdas = lambda_values
-    )
+    ~run_simulation(x_generator = generate_correlated_predictors)
 )
 ```
 
