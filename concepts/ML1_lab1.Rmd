@@ -13,11 +13,13 @@ theme_set(theme_minimal())
 
 ## Our problem
 
-Simple linear model
+Let's start with a simple linear model:
 
-$Y = X'\beta + \varepsilon = \beta_1 X_1 + \beta_2 X_2 + ... + \beta_p X_p + \varepsilon$
+$$
+Y = X'\beta + \varepsilon = \beta_1 X_1 + \beta_2 X_2 + ... + \beta_p X_p + \varepsilon
+$$
 
-Approximately sparse
+This model is _approximately sparse_, meaning that most of the coefficients are close to zero:
 
 ```{r}
 generateBeta <- function(beta_length) {
@@ -39,18 +41,21 @@ f_y_x <- function(x) {
 
 ## Recap: Prediction
 
-Construct a predictor
-$\hat Y = f(X)$
+We would like to construct a predictor based on $X$:
+$\hat Y = f(X)$.
 
-$f^*(X) = X'\beta$
+The optimal predictor (in terms of squared loss) is the conditional expectation function:
+$f^*(X) = \text{E}[Y|X] = X'\beta$.
 
-instead estimate $\hat f(X)$
+Let's assume that we know that the conditional expectation function is linear. Still, we need to know $\beta$ as well to have the optimal predictor. As we do not know the parameters we need to estimate them and use the estimated predictor function $\hat f(X)$ instead.
 
-error $f^*(X) - \hat f(X)$
-overall MSE: $\text{E} \left[\left(f^*(X) - \hat f(X)\right)^2\right]$
+We would like to be as close to the optimal predictor as possible. So we would like to minimize the error: $f^*(X) - \hat f(X)$.
 
-for a given $x_0$ MSE:
-MSE $\text{E} \left[\left(f^*(x_0) - \hat f(x_0)\right)^2\right] =\ ...\ = \text{E}^2\left[f^*(x_0) - \hat f(x_0)\right] + \text{Var}\left(\hat f(x_0)\right)$
+Our main goal is to predict Y for a new observation $X = x_0$, so we would like to minimize the expected squared loss $\text{E} \left[\left(f^*(x_0) - \hat f(x_0)\right)^2\right]$. This could be decomposed into two terms, expressing the famous bias-variance trade-off:
+
+$$
+\text{E} \left[\left(f^*(x_0) - \hat f(x_0)\right)^2\right] =\ ...\ = \text{E}^2\left[f^*(x_0) - \hat f(x_0)\right] + \text{Var}\left(\hat f(x_0)\right)
+$$
 
 
 
@@ -67,7 +72,7 @@ y <- y_exp + rnorm(n) * 4
 
 ```{r}
 calculateMSE <- function(prediction, y_exp) {
-    sqrt(mean((prediction - y_exp)^2))
+    mean((prediction - y_exp)^2)
 }
 ```
 
@@ -86,7 +91,7 @@ lambda_values <- seq(0, 1, 0.05)
 
 ```{r}
 # Write a simulator function that can evaluate a model for a given X
-# end result: lambda, prediction (f_star), error
+# end result should be a data.frame with columns of lambda, prediction (f_star), error
 run_simulation <- function(x_generator, x0 = 0.1, lambdas = seq(0, 0.6, 0.02)) {
     # generate the sample
     # x <-  
@@ -116,17 +121,15 @@ visualize_simulation_results <- function(simulation_results) {
 ### Scenario #1: Independent predictors
 
 ```{r}
-generate_independent_predictors <- function(n = 200, p = 300) {
+generate_independent_predictors <- function(n = 200, p = 100) {
     matrix(rnorm(n * p), nrow = n, ncol = p)
 }
 ```
 
 
 ```{r}
-simulation_results <- map_dfr(
-    1:100, 
-    ~run_simulation(x_generator = generate_independent_predictors)
-)
+# run simulation for n_sim times
+# simulation_results <- 
 ```
 
 
@@ -137,20 +140,18 @@ visualize_simulation_results(simulation_results)
 
 ### Simulation scenario #2: Correlated predictors
 
-Having 10 predictors and try to estimate a very flexible model
+The above model might seem unrealistic in most cases: you rarely have 100 independent predictors linearly affecting your outcome variable. However, you can use the same method to estimate more flexible models as well, e.g. by allowing for squares and interactions: with just 13 predictors you can end up with as much as 104 features which is very close to our previous model (only that now our features are correlated).
 
 ```{r}
-generate_correlated_predictors <- function(n = 200, p = 10) {
-    # for p = 10, there will be 285 features
-    poly(matrix(rnorm(n * p), nrow = n, ncol = p), degree = 3, raw = TRUE)
+generate_correlated_predictors <- function(n = 200, p = 13) {
+    # for p = 13, there will be 104 features
+    poly(matrix(rnorm(n * p), nrow = n, ncol = p), degree = 2, raw = TRUE)
 }
 ```
 
 ```{r}
-simulation_results <- map_dfr(
-    1:100, 
-    ~run_simulation(x_generator = generate_correlated_predictors)
-)
+# run simulation for n_sim times
+# simulation_results <- 
 ```
 
 
