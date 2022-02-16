@@ -5,7 +5,7 @@ output: html_notebook
 ---
 
 
-```{r}
+```{r message=FALSE}
 library(tidyverse)
 library(glmnet)
 theme_set(theme_minimal())
@@ -64,6 +64,7 @@ $$
 ```{r}
 n <- 200
 p <- 100
+set.seed(20220216)
 x <- matrix(rnorm(n * p), nrow = n, ncol = p)	
 
 y_exp <- f_y_x(x)
@@ -77,10 +78,18 @@ calculateMSE <- function(prediction, y_exp) {
 ```
 
 ```{r}
-simple_linreg <- glmnet(x, y, alpha = 1, lambda = 0)
-calculateMSE(predict(simple_linreg, newx = x), y_exp)  # note that we compare to E[Y|X]
-
 # Try some models and evaluate their overall performance
+simple_lm <- lm(y ~ x)
+calculateMSE(predict(simple_lm), y_exp) # note that we compare to E[Y|X]
+
+simple_linreg <- glmnet(x, y, alpha = 1, lambda = 0) # same as lm
+calculateMSE(predict(simple_linreg, newx = x), y_exp)
+
+simple_lasso <- glmnet(x, y, alpha = 1, lambda = 0.1)
+calculateMSE(predict(simple_lasso, newx = x), y_exp)
+
+simple_lasso <- glmnet(x, y, alpha = 1, lambda = 0.5)
+calculateMSE(predict(simple_lasso, newx = x), y_exp)
 ```
 
 
@@ -88,76 +97,10 @@ calculateMSE(predict(simple_linreg, newx = x), y_exp)  # note that we compare to
 ```{r}
 # Be systematic about choosing the best penalty parameter
 lambda_values <- seq(0, 1, 0.05)
-```
-
-## Simulation 
-
-```{r}
-# Write a simulator function that can evaluate a model for a given X
-# end result should be a data.frame with columns of lambda, prediction (f_star), error
-run_simulation <- function(x_generator, x0 = 0.1, lambdas = seq(0, 0.6, 0.02)) {
-    # generate the sample
-    # x <-  
-    # y_exp <-
-    # y <- 
-    
-    # generate the x0 value
-    # x_eval <- matrix(x0, ncol = dim(x)[2])
-    
-    # run the simulation for each lambda and store the results
-    
-}
-```
-
-```{r}
-visualize_simulation_results <- function(simulation_results) {
-    group_by(simulation_results, lambda) |>
-    summarise(bias2 = mean(error)^2, var = var(f_star)) |>
-    mutate(MSE = bias2 + var) |>
-    pivot_longer(bias2:MSE, names_to = "metric") |>
-    mutate(metric = factor(metric, levels = c("bias2", "var", "MSE"))) |>
-    ggplot(aes(lambda, value, color = metric)) + geom_line(size = 1)    
-}
-```
-
-
-### Scenario #1: Independent predictors
-
-```{r}
-generate_independent_predictors <- function(n = 200, p = 100) {
-    matrix(rnorm(n * p), nrow = n, ncol = p)
-}
-```
-
-
-```{r}
-# run simulation for n_sim times
-# simulation_results <- 
-```
-
-
-```{r}
-visualize_simulation_results(simulation_results)
-```
-
-
-### Simulation scenario #2: Correlated predictors
-
-The above model might seem unrealistic in most cases: you rarely have 100 independent predictors linearly affecting your outcome variable. However, you can use the same method to estimate more flexible models as well, e.g. by allowing for squares and interactions: with just 13 predictors you can end up with as much as 104 features which is very close to our previous model (only that now our features are correlated).
-
-```{r}
-generate_correlated_predictors <- function(n = 200, p = 13) {
-    # for p = 13, there will be 104 features
-    poly(matrix(rnorm(n * p), nrow = n, ncol = p), degree = 2, raw = TRUE)
-}
-```
-
-```{r}
-# run simulation for n_sim times
-# simulation_results <- 
-```
-
-
-```{r}
-visualize_simulation_results(simulation_results)
+results <- map_df(lambda_values, ~{
+    model <- glmnet(x, y, alpha = 1, lambda = .x)
+    rmse <- calculateMSE(predict(model, newx = x), y_exp)    
+    tibble(lambda = .x, RMSE = rmse)
+})
+ggplot(results, aes(lambda, RMSE)) + geom_line(size = 1)
 ```
