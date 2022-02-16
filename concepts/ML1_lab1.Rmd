@@ -77,6 +77,9 @@ calculateMSE <- function(prediction, y_exp) {
 ```
 
 ```{r}
+simple_linreg <- glmnet(x, y, alpha = 1, lambda = 0)
+calculateMSE(predict(simple_linreg, newx = x), y_exp)  # note that we compare to E[Y|X]
+
 # Try some models and evaluate their overall performance
 ```
 
