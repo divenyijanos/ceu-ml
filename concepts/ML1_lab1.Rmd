@@ -99,8 +99,27 @@ calculateMSE(predict(simple_lasso, newx = x), y_exp)
 lambda_values <- seq(0, 1, 0.05)
 results <- map_df(lambda_values, ~{
     model <- glmnet(x, y, alpha = 1, lambda = .x)
-    rmse <- calculateMSE(predict(model, newx = x), y_exp)    
-    tibble(lambda = .x, RMSE = rmse)
+    mse <- calculateMSE(predict(model, newx = x), y_exp)    
+    tibble(lambda = .x, MSE = mse)
 })
-ggplot(results, aes(lambda, RMSE)) + geom_line(size = 1)
+ggplot(results, aes(lambda, MSE)) + geom_line(size = 1)
 ```
+Even if we know that the true model is linear we are better off (in terms of mean squared loss) not solving the original problem but a "distorted" one where we introduce penalty for many parameters. The reason for this is that we have not enough information to uncover all of the true parameter values. We can improve our prediction accuracy focusing only on the parameters that matter more.
+
+This would not be true if we had much more information (or, equivalently, less variables in the model).
+
+```{r}
+n <- 200000
+x <- matrix(rnorm(n * p), nrow = n, ncol = p)	
+y_exp <- f_y_x(x)
+y <- y_exp + rnorm(n) * 4
+
+results_large_n <- map_df(seq(0, 0.3, 0.05), ~{
+    model <- glmnet(x, y, alpha = 1, lambda = .x)
+    mse <- calculateMSE(predict(model, newx = x), y_exp)    
+    tibble(lambda = .x, MSE = mse)
+})
+ggplot(results_large_n, aes(lambda, MSE)) + geom_line(size = 1)
+```
+
+Here, we can estimate all of the parameters quite well so we are close to zero loss with the regular regression model. Deliberately distorting our optimization problem just harms.
