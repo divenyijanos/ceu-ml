@@ -1,8 +1,14 @@
 function(input, output) {
 
+    values <- reactiveValues(
+        errors = tibble(
+            n = character(), sd = character(),
+            `k=1` = numeric(), `k=5` = numeric()
+        )
+    )
+
     data <- eventReactive(input$run, {
-        x <- runif(input$n)
-        tibble(x = x, y = f_y_x(x) + rnorm(input$n, sd = as.numeric(input$error_sd)))
+        generate_data(input$n, as.numeric(input$error_sd))
     })
 
     linear_model <- reactive({
@@ -14,21 +20,20 @@ function(input, output) {
     })
 
     output$xy_plot <- renderPlot({
-        ggplot(data(), aes(x, y)) +
-            geom_point(size = 3, alpha = 0.5) +
+        x <- seq(0, 1, 0.01)
+        ggplot(
+            tibble(x = x, y = f_y_x(x)),
+            aes(x, y)
+        ) +
+            geom_point(data = data(), size = 3, alpha = 0.5) +
+            geom_line(size = 1.5, linetype = "dashed") +
             geom_line(
-                data = tibble(x = seq(0, 1, 0.01), y = f_y_x(seq(0, 1, 0.01))),
-                size = 1.5, linetype = "dashed"
+                aes(col = "1", y = predict(linear_model(), tibble(x = x))),
+                size = 1.5
             ) +
-            geom_smooth(
-                aes(col = "1"),
-                method = "lm", formula = "y ~ x",
-                se = FALSE, size = 1.5
-            ) +
-            geom_smooth(
-                aes(col = "5"),
-                method = "lm", formula = "y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5)",
-                se = FALSE, size = 1.5
+            geom_line(
+                aes(col = "2", y = predict(quintic_model(), tibble(x = x))),
+                size = 1.5
             ) +
             geom_vline(xintercept = x0, linetype = "dotted") +
             labs(col = 'Degree of the estimated polynomial') +
@@ -36,12 +41,7 @@ function(input, output) {
             theme(legend.position = "bottom")
     })
 
-    values <- reactiveValues(
-        errors = tibble(
-            n = character(), sd = character(),
-            `k=1` = numeric(), `k=5` = numeric()
-        )
-    )
+
 
     observeEvent(input$run, {
         errors_so_far <- values$errors

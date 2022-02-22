@@ -7,3 +7,12 @@ f_y_x <- function(x) {
 }
 
 x0 <- 0.75
+
+generate_data <- function(n, sd) {
+    x <- runif(n)
+    tibble(x = x, y = f_y_x(x) + rnorm(n, sd = sd))
+}
+
+calculate_mse <- function(x) {
+    mean(x)^2 + var(x)
+}
