@@ -6,6 +6,8 @@ f_y_x <- function(x) {
     8 * x^5 - x^4 - 10 * x^3 - 0.5 * x^2 + 4 * x
 }
 
+default_n <- 100
+default_sd <- 0.5
 x0 <- 0.75
 
 generate_data <- function(n, sd) {

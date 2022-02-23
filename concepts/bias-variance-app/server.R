@@ -1,6 +1,7 @@
 function(input, output) {
 
     values <- reactiveValues(
+        data = generate_data(default_n, default_sd),
         errors = tibble(
             n = character(), sd = character(),
             `k=1` = numeric(), `k=5` = numeric()
@@ -12,36 +13,38 @@ function(input, output) {
     })
 
     linear_model <- reactive({
-        lm(y ~ x, data())
+        lm(y ~ x, values$data)
     })
 
     quintic_model <- reactive({
-        lm(y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5), data())
+        lm(y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5), values$data)
     })
 
     output$xy_plot <- renderPlot({
         x <- seq(0, 1, 0.01)
-        ggplot(
+        plot <- ggplot(
             tibble(x = x, y = f_y_x(x)),
             aes(x, y)
         ) +
-            geom_point(data = data(), size = 3, alpha = 0.5) +
+            geom_point(data = values$data, size = 3, alpha = 0.5) +
             geom_line(size = 1.5, linetype = "dashed") +
-            geom_line(
-                aes(col = "1", y = predict(linear_model(), tibble(x = x))),
-                size = 1.5
-            ) +
-            geom_line(
-                aes(col = "2", y = predict(quintic_model(), tibble(x = x))),
-                size = 1.5
-            ) +
-            geom_vline(xintercept = x0, linetype = "dotted") +
             labs(col = 'Degree of the estimated polynomial') +
             coord_cartesian(ylim = c(-1, 4)) +
-            theme(legend.position = "bottom")
+            theme(legend.position = "top")
+        if (input$run + input$run100 > 0) {
+            plot <- plot +
+                geom_vline(xintercept = x0, linetype = "dotted") +
+                geom_line(
+                    aes(col = "1", y = predict(linear_model(), tibble(x = x))),
+                    size = 1.5
+                ) +
+                geom_line(
+                    aes(col = "5", y = predict(quintic_model(), tibble(x = x))),
+                    size = 1.5
+                )
+        }
+        plot
     })
-
-
 
     observeEvent(input$run, {
         errors_so_far <- values$errors
@@ -52,6 +55,10 @@ function(input, output) {
             `k=1` = f_y_x(x0) - predict(linear_model(), tibble(x = x0)),
             `k=5` = f_y_x(x0) - predict(quintic_model(), tibble(x = x0))
         )
+    })
+
+    observeEvent(input$run, {
+        values$data <- generate_data(input$n, as.numeric(input$error_sd))
     })
 
     errors <- reactive({
