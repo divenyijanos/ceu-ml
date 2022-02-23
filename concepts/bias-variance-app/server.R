@@ -93,7 +93,7 @@ function(input, output) {
 
     observeEvent(input$run100, {
         for (i in seq(100)) {
-            shinyjs::click("run")
+            click("run")
         }
     })
 
