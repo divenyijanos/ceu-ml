@@ -28,21 +28,23 @@ f_y_x <- function(x) {
 ```{r}
 # Write a simulator function that can evaluate a model for a given X
 # end result should be a data.frame with columns of lambda, prediction (f_star), error
-run_simulation <- function(x0 = 0.1, lambdas = seq(0, 0.6, 0.02)) {
+run_simulation <- function(x_generator, x0 = 0.1, lambdas = seq(0, 0.6, 0.02)) {
     # generate the sample
-    n <- 200
-    p <- 100
-    x <- matrix(rnorm(n * p), nrow = n, ncol = p)	
-    # y_exp <-
+    x <- x_generator()	
+    y_exp <- f_y_x(x)
     y <- y_exp + rnorm(length(y_exp)) * 4
     
     # generate the x0 value
     x_eval <- matrix(x0, ncol = dim(x)[2])
     
-    # (1) for each lambda
-    # (2) evaluate at x_eval
-    # (3) save the prediction and error into a tibble
-    
+    map_df(lambdas, ~{
+        model <- glmnet(x, y, alpha = 1, lambda = .x)
+        tibble(
+            lambda = .x, 
+            f_star = as.numeric(predict(model, newx = x_eval)),
+            error = as.numeric(f_y_x(x_eval)) - f_star
+        )        
+    })
 }
 ```
 
@@ -67,11 +69,16 @@ generate_independent_predictors <- function(n = 200, p = 100) {
 }
 ```
 
-Let's turn our `run_simulation` function flexible for any predictors: extract the feature generation into a function that could be passed to the simulator function. Thus, we can easily use the same simulator function for any types of features. Here
 
 ```{r}
 # run simulation for n_sim times
-# simulation_results <- 
+run_simulation(x_generator = generate_independent_predictors)
+n_sim <- 100
+simulation_results <- map_df(
+    seq(n_sim),
+    run_simulation,
+    x_generator = generate_independent_predictors
+)
 ```
 
 
@@ -93,7 +100,11 @@ generate_correlated_predictors <- function(n = 200, p = 13) {
 
 ```{r}
 # run simulation for n_sim times
-# simulation_results <- 
+simulation_results <- map_df(
+    seq(n_sim),
+    run_simulation,
+    x_generator = generate_correlated_predictors
+)
 ```
 
 
