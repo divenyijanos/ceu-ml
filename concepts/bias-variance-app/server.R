@@ -67,7 +67,7 @@ function(input, output) {
         mse <- summarize(group_by(data_to_plot, name, n, sd), MSE = calculate_mse(value))
         plot <- ggplot(data_to_plot, aes(name, value, col = name)) +
             stat_summary(fun = mean, geom = "point", shape = "-", size = 30) +
-            geom_point(size = 3, alpha = 0.5) +
+            geom_point(size = 3, alpha = 0.3) +
             geom_hline(yintercept = 0, linetype = "dotted") +
             facet_grid(n ~ sd, labeller = label_both, scale = "free") +
             labs(x = "Model", y = "Error") +

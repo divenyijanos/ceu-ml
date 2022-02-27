@@ -5,9 +5,9 @@ account: divenyijanos
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 5717706
-bundleId: 5610134
+bundleId: 5622705
 url: https://divenyijanos.shinyapps.io/bias-variance-app/
-when: 1645630273.95557
-lastSyncTime: 1645630273.95559
+when: 1645972794.82082
+lastSyncTime: 1645972794.82085
 asMultiple: FALSE
 asStatic: FALSE
