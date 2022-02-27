@@ -11,7 +11,7 @@ fluidPage(
             br(),
             br(),
             radioButtons("n", "Number of observations", choices = c(100, 1000), selected = default_n),
-            radioButtons("error_sd", withMathJax("Standard deviation of noise (sigma)"), choices = c(0.5, 1, 5), selected = default_sd),
+            radioButtons("error_sd", withMathJax("Standard deviation of noise (sigma)"), choices = c(0.5, 1.5, 5), selected = default_sd),
             actionButton("run", "Simulate"),
             actionButton("run100", "Simulate 100x")
         ),

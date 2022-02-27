@@ -21,3 +21,11 @@ generate_data <- function(n, sd) {
 calculate_mse <- function(x) {
     mean(x)^2 + var(x)
 }
+
+linear_model <- function(data) {
+    lm(y ~ x, data)
+}
+
+quintic_model <- function(data) {
+    lm(y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5), data)
+}
