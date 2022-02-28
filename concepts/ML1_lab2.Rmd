@@ -11,7 +11,7 @@ library(glmnet)
 theme_set(theme_minimal())
 ```
 
-## Simulation 
+## Simulation
 
 Let's continue with our model from last time.
 
@@ -27,23 +27,23 @@ f_y_x <- function(x) {
 
 ```{r}
 # Write a simulator function that can evaluate a model for a given X
-# end result should be a data.frame with columns of lambda, prediction (f_star), error
+# end result should be a data.frame with columns of lambda, prediction (f_hat), error
 run_simulation <- function(x_generator, x0 = 0.1, lambdas = seq(0, 0.6, 0.02)) {
     # generate the sample
-    x <- x_generator()	
+    x <- x_generator()
     y_exp <- f_y_x(x)
     y <- y_exp + rnorm(length(y_exp)) * 4
-    
+
     # generate the x0 value
     x_eval <- matrix(x0, ncol = dim(x)[2])
-    
+
     map_df(lambdas, ~{
         model <- glmnet(x, y, alpha = 1, lambda = .x)
         tibble(
-            lambda = .x, 
-            f_star = as.numeric(predict(model, newx = x_eval)),
-            error = as.numeric(f_y_x(x_eval)) - f_star
-        )        
+            lambda = .x,
+            f_hat = as.numeric(predict(model, newx = x_eval)),
+            error = as.numeric(f_y_x(x_eval)) - f_hat
+        )
     })
 }
 ```
@@ -51,11 +51,11 @@ run_simulation <- function(x_generator, x0 = 0.1, lambdas = seq(0, 0.6, 0.02)) {
 ```{r}
 visualize_simulation_results <- function(simulation_results) {
     group_by(simulation_results, lambda) |>
-    summarise(bias2 = mean(error)^2, var = var(f_star)) |>
+    summarise(bias2 = mean(error)^2, var = var(f_hat)) |>
     mutate(MSE = bias2 + var) |>
     pivot_longer(bias2:MSE, names_to = "metric") |>
     mutate(metric = factor(metric, levels = c("bias2", "var", "MSE"))) |>
-    ggplot(aes(lambda, value, color = metric)) + geom_line(size = 1)    
+    ggplot(aes(lambda, value, color = metric)) + geom_line(size = 1)
 }
 ```
 
