@@ -10,6 +10,7 @@ output: html_notebook
 library(tidyverse)
 library(glmnet)
 library(factoextra)
+library(pls)
 theme_set(theme_minimal())
 ```
 
@@ -127,7 +128,7 @@ summary(pca_result)
 
 Let's check if our numbers are corresponding to our expectations:
 
-- Weights wum to 1
+- Weights sum to 1
 
 ```{r}
 pca_result$rotation
@@ -137,7 +138,7 @@ colSums(pca_result$rotation^2)
 - PC-s are orthogonal to each other: they contain "independent" variance from the data
 
 ```{r}
-sum(pca_result$rotation[, 1] * pca_result$rotation[, 2])
+sum(pca_result$rotation[, 1] * pca_result$rotation[, 10])
 ```
 
 - if we take the linear combination of (scaled) original variables with the weights specified by
@@ -152,8 +153,7 @@ sd(pc1_value_for_observations)
 - the total variance equals to the number of variables (due to the scaling)
 
 ```{r}
-total_variance <- sum(variances)
-total_variance
+sum(summary(pca_result)$importance[1,]^2)
 ```
 
 Let's examine our PCA result using the `factoextra::fviz_pca()` function that plots observations as well as original features in the space spanned
@@ -277,7 +277,9 @@ health_status <- c(rep("healthy", 20), rep("diseased", 20))
 
 ```{r}
 # Run PCA on genes data and look at the first two principal components
-
+genes_pca <- prcomp(genes)
+fviz_pca(genes_pca)
+fviz_pca_ind(genes_pca, geom = "point", fill.ind = health_status, addEllipses = TRUE)
 ```
 
 
