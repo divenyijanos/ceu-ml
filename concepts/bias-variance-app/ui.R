@@ -3,7 +3,7 @@ fluidPage(
     titlePanel("Bias-Variance trade-off"),
 
     sidebarLayout(
-        sidebarPanel(width = 3,
+        sidebarPanel(
             withMathJax("Our true model is $$Y = \\beta_1 X^5 + \\beta_2 X^4 + ... + \\beta_5 X + \\varepsilon$$"),
             withMathJax("where $$\\varepsilon \\sim \\mathcal{N}(0, \\sigma)$$"),
             br(),
@@ -18,11 +18,18 @@ fluidPage(
             br(),
             br(),
             radioButtons("n", "Number of observations", choices = c(100, 1000), selected = default_n),
-            radioButtons("error_sd", withMathJax("Standard deviation of noise (sigma)"), choices = c(0.5, 1.5, 5), selected = default_sd),
+            radioButtons("error_sd", withMathJax("Standard deviation of noise (sigma)"), choices = c(0.5, 5), selected = default_sd),
             actionButton("run", "Simulate"),
-            actionButton("run100", "Simulate 100x")
+            actionButton("run100", "Simulate 100x"),
+            br(),
+            hr(style = "border-top: 1px solid #909090;"),
+            HTML("<B>Lesson:</B> You can realize that estimating the wrong model might result in a better predictor
+                 than estimating the true one if the noise is relatively large (few observations, large variance of noise). 
+                 This is because the wrong model is a simpler one
+                 that is easier to estimate, so its prediction variance is going to be much smaller. 
+                 This could compensate for not being able to predict the true value on average (bias).")
         ),
-        mainPanel(width = 9,
+        mainPanel(
             plotOutput("xy_plot", height = 370),
             plotOutput("error_plot", height = 370)
         )
