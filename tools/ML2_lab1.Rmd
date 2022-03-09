@@ -1,0 +1,297 @@
+---
+title: "CEU Machine Learning Tools - Session 1"
+author: János Divényi
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(glmnet)
+library(pls)  # for Principal-Component Regression
+library(rpart)  # for Tree
+library(ranger)  # for Random Forest
+library(gbm)  # for Boosted Trees
+theme_set(theme_minimal())
+```
+
+## Predicting bike share demand using known tools
+
+
+```{r}
+# kaggle data, the test set cannot be used for our test purposes
+bike_data <- read_csv("../data/bike_sample.csv")
+skimr::skim(bike_data)
+```
+
+
+```{r}
+n_obs <- nrow(bike_data)
+test_share <- 0.2
+
+set.seed(20220309)
+test_indices <- sample(seq(n_obs), floor(test_share * n_obs))
+bike_test <- slice(bike_data, test_indices)
+bike_train <- slice(bike_data, -test_indices)
+```
+
+```{r}
+calculateRMSLE <- function(prediction, y_obs) {
+    sqrt(mean((log(prediction + 1) - log(y_obs + 1))^2))
+}
+```
+
+
+```{r}
+# benchmark: avg & median (create rmsle_results tibble with columns: model, train, test)
+```
+
+
+```{r}
+group_averages <- lm(count ~ as.factor(season) + as.factor(holiday) + as.factor(workingday), data = bike_train)
+rmsle_results <- add_row(rmsle_results,
+    model = "Group-avg",
+    train = calculateRMSLE(predict(group_averages), bike_train$count),
+    test = calculateRMSLE(predict(group_averages, bike_test), bike_test$count)
+)
+rmsle_results
+```
+```{r}
+group_averages_weather <- lm(
+    count ~ as.factor(season) + as.factor(holiday) + as.factor(workingday) + as.factor(weather) + temp + atemp + humidity + windspeed,
+    data = bike_train
+)
+
+rmsle_results <- add_row(rmsle_results,
+    model = "Full linear",
+    train = calculateRMSLE(predict(group_averages_weather), bike_train$count),
+    test = calculateRMSLE(predict(group_averages_weather, bike_test), bike_test$count)
+)
+rmsle_results
+```
+
+```{r}
+createMatrixFeatures <- function(df) {
+    model.matrix(
+        ~ as.factor(season) + as.factor(holiday) + as.factor(workingday) + as.factor(weather) + temp + atemp + humidity + windspeed,
+        data = df
+    )
+}
+features <- createMatrixFeatures(bike_train)
+outcome <- bike_train$count
+lasso <- cv.glmnet(features,  outcome, alpha = 1)
+lasso
+```
+
+```{r}
+lasso_test_predictions <- predict(lasso, newx = createMatrixFeatures(bike_test), s = lasso$lambda.1se)
+rmsle_results <- add_row(rmsle_results,
+    model = "CV LASSO",
+    train = calculateRMSLE(predict(lasso, newx = features, s = lasso$lambda.min), bike_train$count),
+    test = calculateRMSLE(lasso_test_predictions, bike_test$count)
+)
+rmsle_results
+```
+
+```{r}
+pcr_model <- pcr(outcome ~ features[,-1], scale = TRUE)
+summary(pcr_model)
+```
+
+```{r}
+rmsle_results <- add_row(rmsle_results,
+    model = "PCR 8 comp",
+    train = calculateRMSLE(as.numeric(predict(pcr_model, ncomp = 8)), bike_train$count),
+    test = calculateRMSLE(as.numeric(predict(pcr_model, newdata = createMatrixFeatures(bike_test)[, -1], ncomp = 8)), bike_test$count)
+)
+rmsle_results
+```
+
+
+```{r}
+tree_model <- rpart(
+    count ~ as.factor(season) + as.factor(holiday) + as.factor(workingday) + as.factor(weather) + temp + atemp + humidity + windspeed,
+    bike_train
+)
+rmsle_results <- add_row(rmsle_results,
+    model = "Tree",
+    train = calculateRMSLE(predict(tree_model), bike_train$count),
+    test = calculateRMSLE(predict(tree_model, newdata = bike_test), bike_test$count)
+)
+rmsle_results
+```
+
+
+## Improve our models
+
+### Diagnostics
+
+```{r}
+bike_predictions <- select(bike_test, count) |>
+    mutate(
+        prediction_lm = predict(group_averages_weather, bike_test),
+        prediction_lasso = lasso_test_predictions,
+        prediction_tree = predict(tree_model, bike_test)
+    )
+```
+
+```{r}
+bike_predictions |>
+    pivot_longer(starts_with("prediction"), names_prefix = "prediction_") |>
+    ggplot() +
+    geom_density(aes(x = value, color = "Prediction")) +
+    geom_density(aes(x = count, color = "Observed")) +
+    facet_grid(~ name)
+```
+
+
+```{r}
+bike_predictions |>
+    pivot_longer(starts_with("prediction"), names_prefix = "prediction_") |>
+    ggplot(aes(count, value)) +
+    geom_point(alpha = 0.3, size = 2) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "firebrick") +
+    facet_grid(~ name) +
+    labs(x = "Observed", y = "Predicted")
+```
+
+
+### Stacking
+
+```{r}
+# Run a simple stacking and evaluate its performance (on the test set enough)
+```
+
+```{r}
+filter(bike_test, count <= 20)
+```
+
+
+### Feature engineering: create new variables
+
+```{r}
+createAdditionalFeatures <- function(bike_data) {
+    mutate(bike_data,
+        month = lubridate::month(datetime),
+        day = lubridate::day(datetime),
+        hour = lubridate::hour(datetime),
+        weekday = weekdays(datetime),
+        across(season:weather, as.factor),
+        datetime = NULL
+    )
+}
+bike_train_plus <- createAdditionalFeatures(bike_train)
+bike_test_plus <- createAdditionalFeatures(bike_test)
+```
+
+```{r}
+linear_more_features <- lm(
+    count ~ ., select(bike_train_plus, -casual, -registered)
+)
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng linear",
+    train = calculateRMSLE(predict(linear_more_features), bike_train_plus$count),
+    test = calculateRMSLE(predict(linear_more_features, bike_test_plus), bike_test_plus$count)
+)
+rmsle_results
+```
+
+```{r}
+tree_more_features <- rpart(
+    count ~ ., select(bike_train_plus, -casual, -registered)
+)
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng tree",
+    train = calculateRMSLE(predict(tree_more_features), bike_train_plus$count),
+    test = calculateRMSLE(predict(tree_more_features, bike_test_plus), bike_test_plus$count)
+)
+rmsle_results
+```
+
+
+### Add more data
+
+```{r}
+bike_full <- read_csv("../data/bike_train.csv")
+bike_train_full <- anti_join(bike_full, bike_test)
+```
+
+
+```{r}
+full_linear_large_n <- lm(
+    count ~ as.factor(season) + as.factor(holiday) + as.factor(workingday) + as.factor(weather) + temp + atemp + humidity + windspeed,
+    data = bike_train_full
+)
+rmsle_results <- add_row(rmsle_results,
+    model = "Full linear large n",
+    train = calculateRMSLE(predict(full_linear_large_n), bike_train_full$count),
+    test = calculateRMSLE(predict(full_linear_large_n, bike_test), bike_test$count)
+)
+rmsle_results
+```
+
+
+
+```{r}
+bike_train_full_plus <- createAdditionalFeatures(bike_train_full)
+linear_plus_large_n <- lm(
+    count ~ .,
+    data = select(bike_train_full_plus, -casual, -registered)
+)
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng linear large n",
+    train = calculateRMSLE(predict(linear_plus_large_n), bike_train_full$count),
+    test = calculateRMSLE(predict(linear_plus_large_n, bike_test_plus), bike_test$count)
+)
+tail(rmsle_results)
+```
+
+```{r}
+tree_plus_large_n <- rpart(
+    count ~ .,
+    data = select(bike_train_full_plus, -casual, -registered)
+)
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng tree large n",
+    train = calculateRMSLE(predict(tree_plus_large_n), bike_train_full$count),
+    test = calculateRMSLE(predict(tree_plus_large_n, bike_test_plus), bike_test$count)
+)
+tail(rmsle_results)
+```
+
+
+```{r}
+# Train a simple RF model on both the sample and the full data using the ranger() function with the default settings and evaluate their performance
+```
+
+
+
+```{r}
+gbm <- gbm(
+    count ~ .,
+    data = select(bike_train_plus, -casual, -registered),
+    n.trees = 1000,
+    shrinkage = 0.01,
+    interaction.depth = 4
+)
+rmsle_results <- add_row(rmsle_results,
+    model = "Gradient Boosting",
+    train = calculateRMSLE(predict(gbm, bike_train_plus), bike_train$count),
+    test = calculateRMSLE(predict(gbm, bike_test_plus), bike_test$count)
+)
+tail(rmsle_results)
+```
+```{r}
+gbm_full <- gbm(
+    count ~ .,
+    data = select(bike_train_full_plus, -casual, -registered),
+    n.trees = 1000,
+    shrinkage = 0.01,
+    interaction.depth = 4
+)
+rmsle_results <- add_row(rmsle_results,
+    model = "Gradient Boosting",
+    train = calculateRMSLE(predict(gbm, bike_train_full_plus), bike_train_full$count),
+    test = calculateRMSLE(predict(gbm, bike_test_plus), bike_test$count)
+)
+tail(rmsle_results)
+```
