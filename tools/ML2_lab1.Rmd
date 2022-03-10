@@ -4,7 +4,7 @@ author: János Divényi
 output: html_notebook
 ---
 
-```{r}
+```{r libs}
 library(tidyverse)
 library(glmnet)
 library(pls)  # for Principal-Component Regression
