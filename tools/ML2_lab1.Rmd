@@ -96,6 +96,10 @@ rmsle_results <- add_row(rmsle_results,
 rmsle_results
 ```
 
+In ML1 we run LASSO regressions using the `glmnet()` function.
+This function expects a matrix parameter that contains the features, and vector parameter for the outcome.
+So we need to create these two parameters from our data to be able to use the `glmnet()` function as we did in ML1.
+The `model.matrix()` function can accomplish what we want: turning a data into a matrix of features based on a formula.
 ```{r lasso}
 createMatrixFeatures <- function(df) {
     model.matrix(
@@ -119,6 +123,9 @@ rmsle_results <- add_row(rmsle_results,
 rmsle_results
 ```
 
+You should scale your features before applying PCA as otherwise you would prefer variables with higher variances.
+The first column of our feature matrix is a constant 1 term for the intercept. We have to remove that before applying PCA:
+`features[, -1]`:
 ```{r pcr}
 pcr_model <- pcr(outcome ~ features[, -1], scale = TRUE)
 summary(pcr_model)
@@ -184,6 +191,11 @@ bike_predictions |>
 
 ### Stacking
 
+We might realize from the plots above that the linear models and the tree model result in quite different predictions.
+Some observations are predicted better by the linear models, others are predicted better by the tree model.
+Why not combine the two? This is the basic idea of _stacking_ (or creating _model ensembles_).
+Let's start with the simplest way of combination: averaging.
+
 ```{r stacking}
 stacked_prediction <- (bike_predictions$prediction_lm + bike_predictions$prediction_lasso + bike_predictions$prediction_tree) / 3
 rmsle_results <- add_row(rmsle_results,
@@ -193,25 +205,30 @@ rmsle_results <- add_row(rmsle_results,
 rmsle_results
 ```
 
+
+We might also notice from the plots a particular subset of observations where we have hard time with prediction:
+hours with almost zero demand are usually overpredicted. Let's take a look a them:
 ```{r look-at-small-counts}
 filter(bike_train, count <= 20)
 ```
 
+We can realize that there is an important piece of information we have not used before: the period of day.
+Demand is close zero between 0 and 5 hour (unsurprisingly). This information was "hidden" in the `datetime` column,
+which is neither a numeric nor a categorical variable so our models were not able to interpret them.
+Let's extract this information by creating some new features. This process is called _feature engineering_.
 
 ### Feature engineering: create new variables
 
 ```{r feature-engineering}
 createAdditionalFeatures <- function(bike_data) {
-    mutate(bike_data,
-        month = as.factor(lubridate::month(datetime)),
-        hour = as.factor(lubridate::hour(datetime)),
-        weekday = as.factor(weekdays(datetime)),
-        across(season:weather, as.factor),
-        workingday = NULL,
-        datetime = NULL,
-        casual = NULL,
-        registered = NULL
-    )
+    bike_data |>
+        mutate(
+            month = as.factor(lubridate::month(datetime)),
+            hour = as.factor(lubridate::hour(datetime)),
+            weekday = as.factor(weekdays(datetime)),
+            across(season:weather, as.factor)
+        ) |>
+        select(-datetime, -workingday, -casual, -registered)
 }
 bike_train_plus <- createAdditionalFeatures(bike_train)
 bike_test_plus <- createAdditionalFeatures(bike_test)
@@ -240,11 +257,18 @@ rmsle_results
 
 ### Add more data
 
+Our original data was a 20% sample of the original one. Let's mimic collecting more data by considering the whole sample.
+To ensure that we can compare the results of the larger data to our previous observations
+we have to keep our test data set intact. This can be achieved by taking out the test observations
+from the full data set and using the remaining part as our new train set.
+We implement this operation by using the `anti_join()` function.
+
 ```{r load-full-data-set}
 bike_full <- read_csv("../data/bike_sharing_demand/train.csv")
 bike_train_full <- anti_join(bike_full, bike_test)
 ```
 
+Our new train set `bike_train_full` is almost 6 times larger than our original one.
 
 ```{r lm-on-full-data}
 full_linear_large_n <- lm(
@@ -258,8 +282,6 @@ rmsle_results <- add_row(rmsle_results,
 )
 rmsle_results
 ```
-
-
 
 ```{r lm-on-full-feature-engineered-data}
 bike_train_full_plus <- createAdditionalFeatures(bike_train_full)
@@ -282,7 +304,14 @@ rmsle_results <- add_row(rmsle_results,
 tail(rmsle_results)
 ```
 
+Interestingly, our linear models hardly improve when trained on a much bigger dataset.
+This might be caused by the fact that these models are relatively rigid,
+and they could have been estimated quite well on the smaller data set as well.
+
 ### Train more flexible models
+
+Let's try some more flexible models now. We expect them to perform better on the test set,
+especially, if they are fed enough data.
 
 ```{r rf-feature-engineered-data}
 set.seed(20220309)
@@ -340,6 +369,16 @@ tail(rmsle_results)
 ```
 
 ## Submit to Kaggle
+
+As a last step, let's submit our best model to Kaggle to evaluate its performance on the Kaggle test set.
+We might want to retrain this model using all of the data that is available to us.
+We can expect the final RMSLE on the Kaggle to be somewhat larger than what our test set showed
+even if we use more data to train it. We have two reasons for this:
+First, we used the test set to choose our best model, so it ceased to remain a real hold-out set as our best model depends on it
+(this is a general concern).
+Second, we created our test set just randomly whereas Kaggle assigned the days from the 20th onwards of each month to the test set.
+Thus, our way of choosing the test set was a kind of cheating.
+
 ```{r submit-to-kaggle}
 kaggle_test <- read_csv("../data/bike_sharing_demand/test.csv")
 full_train_rf <- ranger(count ~ ., createAdditionalFeatures(bike_full))
