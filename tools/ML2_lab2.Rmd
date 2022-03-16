@@ -315,7 +315,7 @@ The Fashion-MNIST dataset consists of Zalando’s article images. Each example i
 9. Ankle boot
 
 ```{r load-fmnist}
-fmnist_data <- read_csv("../data/fashion/fashion-mnist_train.csv")
+fmnist_data <- read_csv("../data/fashion/fmnist5000.csv")
 fmnist_data <- mutate(fmnist_data, label := as.factor(label))
 ```
 
