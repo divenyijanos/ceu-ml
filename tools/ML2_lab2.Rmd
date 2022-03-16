@@ -56,7 +56,7 @@ summary(prostate_data)
 ```
 
 ```{r data-split}
-my_seed <- 20220317
+my_seed <- 20220316
 prostate_data_splits <- h2o.splitFrame(data =  prostate_data, ratios = 0.8, seed = my_seed)
 train <- prostate_data_splits[[1]]
 test <- prostate_data_splits[[2]]
@@ -72,7 +72,7 @@ mean(train$CAPSULE)
 ```{r estimate-logit}
 # set the predictor and response columns
 response <- "CAPSULE"
-predictors <- setdiff(names(prostate_data), response)
+predictors <- setdiff(names(prostate_data), c(response, "ID"))
 
 # build a simple GLM model using CV (just for evaluation, no hyperparam tuning yet)
 simple_logit <- h2o.glm(
