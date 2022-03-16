@@ -97,7 +97,7 @@ head(logit_predictions)
 
 ```{r evaluate-performance}
 logit_performance <- h2o.performance(simple_logit, xval = TRUE)
-h2o.accuracy(logit_performance, thresholds)
+h2o.accuracy(logit_performance, thresholds = 0.3)
 plot(logit_performance, type = "roc")
 plot(logit_performance, type = "pr")
 h2o.confusionMatrix(logit_performance)
