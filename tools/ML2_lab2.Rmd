@@ -295,4 +295,92 @@ automl <- h2o.automl(
 )
 automl
 h2o.auc(h2o.performance(automl@leader, xval = TRUE))
+h2o.model_correlation_heatmap(automl, xval = TRUE)
+```
+
+
+## Classify fashion images
+
+The Fashion-MNIST dataset consists of Zalando’s article images. Each example is a 28×28 grayscale image, associated with a label from 10 classes:
+
+0. T-shirt/top
+1. Trouser
+2. Pullover
+3. Dress
+4. Coat
+5. Sandal
+6. Shirt
+7. Sneaker
+8. Bag
+9. Ankle boot
+
+```{r load-fmnist}
+fmnist_data <- read_csv("../data/fashion/fashion-mnist_train.csv")
+fmnist_data <- mutate(fmnist_data, label := as.factor(label))
+```
+
+```{r plot-fashion-data}
+xy_axis <- as_tibble(expand.grid(x = 1:28, y = 28:1))
+plot_theme <- list(
+    raster = geom_raster(hjust = 0, vjust = 0),
+    gradient_fill = scale_fill_gradient(low = "white", high = "black", guide = "none"),
+    theme = theme(
+        axis.line = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_blank()
+    )
+)
+
+id <- 2
+cbind(xy_axis, fill = t(fmnist_data[id, -1])) |>
+    ggplot(aes(x, y, fill = fill)) + plot_theme + labs(title = fmnist_data[id, 1])
+```
+```{r create-h2o-frames}
+# I assign only 20% to training to shorten the training time
+data_split <- h2o.splitFrame(as.h2o(fmnist_data), ratios = 0.2, seed = my_seed)
+fmnist_train <- data_split[[1]]
+fmnist_holdout <- data_split[[2]]
+```
+
+
+```{r simple-dl-on-fashion}
+fmnist_dl_default <- h2o.deeplearning(
+    x = 2:785,
+    y = "label", 
+    training_frame = fmnist_train,
+    validation_frame = fmnist_holdout,
+    model_id = "fmnist_dl_default",
+)
+```
+
+```{r investigate-h2o-dl}
+fmnist_dl_default
+h2o.scoreHistory(fmnist_dl_default)
+plot(fmnist_dl_default, metric = "classification_error")
+```
+
+```{r look-at-dl-params}
+params <- fmnist_dl_default@allparameters
+str(params)
+?h2o.deeplearning
+```
+
+
+```{r adjusted-dl-on-fashion}
+fmnist_dl_adjusted <- h2o.deeplearning(
+    x = 2:785,
+    y = "label", 
+    training_frame = fmnist_train,
+    validation_frame = fmnist_holdout,
+    model_id = "fmnist_dl_adjusted",
+    hidden = c(20, 20), 
+    mini_batch_size = 20,
+    score_each_iteration = TRUE
+)
 ```
