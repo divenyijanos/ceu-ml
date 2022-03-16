@@ -51,6 +51,8 @@ prostate_data$CAPSULE <- as.factor(prostate_data$CAPSULE)
 prostate_data$RACE <- as.factor(prostate_data$RACE)
 prostate_data$DCAPS <- as.factor(prostate_data$DCAPS)
 prostate_data$DPROS <- as.factor(prostate_data$DPROS)
+
+summary(prostate_data)
 ```
 
 ```{r data-split}
@@ -107,7 +109,7 @@ h2o.confusionMatrix(logit_performance, threshold = 0.5)
 # no dedicated single decision tree algorithm, so run a restricted randomForest:
 #  ntrees = 1, mtries = k and sample_rate = 1 (grow one tree on all the columns using all obs)
 simple_tree <- h2o.randomForest(
-    predictors, 
+    predictors,
     response,
     training_frame = train,
     model_id = "tree",
@@ -251,7 +253,7 @@ ggplot(rf_metrics, aes(fpr, tpr, group = model)) +
 
 ## XGBoost
 
-A celebrated implementation of the gradient boosting idea. 
+A celebrated implementation of the gradient boosting idea.
 
 > "Both xgboost and gbm follows the principle of gradient boosting. There are however, the difference in modeling details. Specifically, xgboost used a more regularized model formalization to control over-fitting, which gives it better performance." (https://xgboost.readthedocs.io/en/latest/tutorials/model.html)
 
@@ -260,20 +262,29 @@ simple_xgboost <- h2o.xgboost(
     x = predictors, y = response,
     model_id = "simple_xgboost",
     training_frame = train,
+    validation_frame = test,
     nfolds = 5,
+    score_each_iteration = TRUE,
     seed = my_seed
 )
 simple_xgboost
+```
+
+```{r xgboost-score-history}
+xgboost_score_history <- h2o.scoreHistory(simple_xgboost)
+pivot_longer(xgboost_score_history, ends_with("error")) |>
+    ggplot(aes(number_of_trees, value, color = name)) +
+    geom_line()
 ```
 
 
 ```{r xgboost-param-tuning}
 # Tune the following hyperparams trying at least 2 values for each: learn_rate, ntrees, sample_rate, gamma (regularization param) and plot the AUC for each combination
 xgboost_params <- list(
-    learn_rate = c(0.1, 0.3),  # default: 0.3
-    ntrees = c(50, 100),
-    max_depth = c(2, 5),
-    gamma = c(0, 1, 2),  # regularization parameter
+    learn_rate = ,  # default: 0.3
+    ntrees = ,
+    max_depth = ,
+    gamma =   # regularization parameter: min_split_improvement, default: 0
 )
 
 ```
@@ -352,7 +363,7 @@ fmnist_holdout <- data_split[[2]]
 ```{r simple-dl-on-fashion}
 fmnist_dl_default <- h2o.deeplearning(
     x = 2:785,
-    y = "label", 
+    y = "label",
     training_frame = fmnist_train,
     validation_frame = fmnist_holdout,
     model_id = "fmnist_dl_default",
@@ -375,11 +386,11 @@ str(params)
 ```{r adjusted-dl-on-fashion}
 fmnist_dl_adjusted <- h2o.deeplearning(
     x = 2:785,
-    y = "label", 
+    y = "label",
     training_frame = fmnist_train,
     validation_frame = fmnist_holdout,
     model_id = "fmnist_dl_adjusted",
-    hidden = c(20, 20), 
+    hidden = c(20, 20),
     mini_batch_size = 20,
     score_each_iteration = TRUE
 )
