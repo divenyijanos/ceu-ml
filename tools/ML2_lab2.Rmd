@@ -134,7 +134,17 @@ h2o.predict(simple_tree, test)
 # Estimate a random forest model with the default settings and with my_seed
 # Calculate the accuracy for cv data at the 0.5 cutoff
 # Plot the ROC curve evaluated on the cv data
-
+simple_rf <- h2o.randomForest(
+    x = predictors,
+    y = response,
+    training_frame = train,
+    model_id = "random_forest",
+    nfolds = 5,
+    seed = my_seed
+)
+rf_performance <- h2o.performance(simple_rf, xval = TRUE)
+h2o.accuracy(rf_performance, 0.5)
+plot(rf_performance, type = "roc")
 ```
 
 ## Comparison of models using ROC / PR plots
@@ -174,11 +184,13 @@ plotRP(logit_metrics)
 ```
 
 ```{r compare-models}
-simple_models <- list(simple_logit, simple_tree)
+simple_models <- list(simple_logit, simple_rf)
 simple_models_performance <- map_df(simple_models, getMetricsWithThresholds, xval = TRUE)
 plotROC(simple_models_performance)
 plotRP(simple_models_performance)
 ```
+
+The more flexible RF model cannot perform better than the very basic logistic regression. Most probably our data is too small to allow for learning complex patterns.
 
 ## Hyper-parameter tuning
 
@@ -203,7 +215,7 @@ rf_grid <- h2o.grid(
 
 ```{r look-at-tuned-results}
 # Note that if neither cross-validation nor a validation frame is used in the grid search, then the training metrics will display in the "get grid" output. If a validation frame is passed to the grid, and nfolds = 0, then the validation metrics will display. However, if nfolds > 1, then cross-validation metrics will display even if a validation frame is provided.
-h2o.getGrid(rf_grid@grid_id, "auc")
+h2o.getGrid(rf_grid@grid_id, "auc", decreasing = TRUE)
 ```
 
 ```{r plot-tuned-results}
@@ -253,7 +265,7 @@ ggplot(rf_metrics, aes(fpr, tpr, group = model)) +
 
 ## XGBoost
 
-A celebrated implementation of the gradient boosting idea.
+A celebrated implementation of the gradient boosting idea. Unfortunately, it does not work on Windows machines.
 
 > "Both xgboost and gbm follows the principle of gradient boosting. There are however, the difference in modeling details. Specifically, xgboost used a more regularized model formalization to control over-fitting, which gives it better performance." (https://xgboost.readthedocs.io/en/latest/tutorials/model.html)
 
@@ -264,6 +276,8 @@ simple_xgboost <- h2o.xgboost(
     training_frame = train,
     validation_frame = test,
     nfolds = 5,
+    max_depth = 2, min_split_improvement = 0.1,
+    learn_rate = 0.05, ntrees = 200,
     score_each_iteration = TRUE,
     seed = my_seed
 )
@@ -275,18 +289,6 @@ xgboost_score_history <- h2o.scoreHistory(simple_xgboost)
 pivot_longer(xgboost_score_history, ends_with("error")) |>
     ggplot(aes(number_of_trees, value, color = name)) +
     geom_line()
-```
-
-
-```{r xgboost-param-tuning}
-# Tune the following hyperparams trying at least 2 values for each: learn_rate, ntrees, sample_rate, gamma (regularization param) and plot the AUC for each combination
-xgboost_params <- list(
-    learn_rate = ,  # default: 0.3
-    ntrees = ,
-    max_depth = ,
-    gamma =   # regularization parameter: min_split_improvement, default: 0
-)
-
 ```
 
 
@@ -302,96 +304,10 @@ automl <- h2o.automl(
     nfolds = 5,
     sort_metric = "AUC",
     seed = my_seed,
-    max_runtime_secs = 60 # limit the run-time
+    max_runtime_secs = 120 # limit the run-time
 )
 automl
 h2o.auc(h2o.performance(automl@leader, xval = TRUE))
-h2o.model_correlation_heatmap(automl, xval = TRUE)
+h2o.model_correlation_heatmap(automl, newdata = train)
 ```
 
-
-## Classify fashion images
-
-The Fashion-MNIST dataset consists of Zalando’s article images. Each example is a 28×28 grayscale image, associated with a label from 10 classes:
-
-0. T-shirt/top
-1. Trouser
-2. Pullover
-3. Dress
-4. Coat
-5. Sandal
-6. Shirt
-7. Sneaker
-8. Bag
-9. Ankle boot
-
-```{r load-fmnist}
-fmnist_data <- read_csv("../data/fashion/fmnist5000.csv")
-fmnist_data <- mutate(fmnist_data, label := as.factor(label))
-```
-
-```{r plot-fashion-data}
-xy_axis <- as_tibble(expand.grid(x = 1:28, y = 28:1))
-plot_theme <- list(
-    raster = geom_raster(hjust = 0, vjust = 0),
-    gradient_fill = scale_fill_gradient(low = "white", high = "black", guide = "none"),
-    theme = theme(
-        axis.line = element_blank(),
-        axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        axis.title = element_blank(),
-        panel.background = element_blank(),
-        panel.border = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        plot.background = element_blank()
-    )
-)
-
-id <- 2
-cbind(xy_axis, fill = t(fmnist_data[id, -1])) |>
-    ggplot(aes(x, y, fill = fill)) + plot_theme + labs(title = fmnist_data[id, 1])
-```
-```{r create-h2o-frames}
-# I assign only 20% to training to shorten the training time
-data_split <- h2o.splitFrame(as.h2o(fmnist_data), ratios = 0.2, seed = my_seed)
-fmnist_train <- data_split[[1]]
-fmnist_holdout <- data_split[[2]]
-```
-
-
-```{r simple-dl-on-fashion}
-fmnist_dl_default <- h2o.deeplearning(
-    x = 2:785,
-    y = "label",
-    training_frame = fmnist_train,
-    validation_frame = fmnist_holdout,
-    model_id = "fmnist_dl_default",
-)
-```
-
-```{r investigate-h2o-dl}
-fmnist_dl_default
-h2o.scoreHistory(fmnist_dl_default)
-plot(fmnist_dl_default, metric = "classification_error")
-```
-
-```{r look-at-dl-params}
-params <- fmnist_dl_default@allparameters
-str(params)
-?h2o.deeplearning
-```
-
-
-```{r adjusted-dl-on-fashion}
-fmnist_dl_adjusted <- h2o.deeplearning(
-    x = 2:785,
-    y = "label",
-    training_frame = fmnist_train,
-    validation_frame = fmnist_holdout,
-    model_id = "fmnist_dl_adjusted",
-    hidden = c(20, 20),
-    mini_batch_size = 20,
-    score_each_iteration = TRUE
-)
-```
