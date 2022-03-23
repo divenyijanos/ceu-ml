@@ -86,6 +86,8 @@ fmnist_logit <- h2o.glm(
 
 ```{r logit-performance}
 # plot the confusion matrix and calculate the mean per class error for the logit
+h2o.confusionMatrix(fmnist_logit, valid = TRUE)
+h2o.mean_per_class_error(fmnist_logit, train = TRUE, valid = TRUE)
 ```
 
 ```{r simple-dl-on-fashion}
@@ -287,17 +289,17 @@ data_valid_2d_x <- array_reshape(data_valid_x, c(nrow(data_valid_x), 28, 28, 1))
 
 ```{r cnn-definition}
 cnn_model <- keras_model_sequential()
-cnn_model |> 
+cnn_model |>
     layer_conv_2d(
         filters = 32,
         kernel_size = c(3, 3),
         activation = 'relu',
         input_shape = c(28, 28, 1)
-    ) |> 
-    layer_max_pooling_2d(pool_size = c(2, 2)) |> 
-    layer_dropout(rate = 0.2) |> 
-    layer_flatten() |> 
-    layer_dense(units = 16, activation = 'relu') |> 
+    ) |>
+    layer_max_pooling_2d(pool_size = c(2, 2)) |>
+    layer_dropout(rate = 0.2) |>
+    layer_flatten() |>
+    layer_dense(units = 16, activation = 'relu') |>
     layer_dense(units = 10, activation = 'softmax')
 ```
 
@@ -345,7 +347,7 @@ modifying your training sample data points, retaining the labels.
 
 Set up steps with which we can alter images a bit:
 ```{r data-augmentation}
-batch_size <- 128
+batch_size <- 64
 
 train_datagen <- image_data_generator(
     rotation_range = 20,
@@ -374,17 +376,17 @@ valid_generator <- flow_images_from_data(
 
 ```{r cnn-with-augmentation}
 cnn_model_w_augmentation <- keras_model_sequential()
-cnn_model_w_augmentation |> 
+cnn_model_w_augmentation |>
     layer_conv_2d(
         filters = 32,
         kernel_size = c(3, 3),
         activation = 'relu',
         input_shape = c(28, 28, 1)
-    ) |> 
-    layer_max_pooling_2d(pool_size = c(2, 2)) |> 
-    layer_dropout(rate = 0.2) |> 
-    layer_flatten() |> 
-    layer_dense(units = 32, activation = 'relu') |> 
+    ) |>
+    layer_max_pooling_2d(pool_size = c(2, 2)) |>
+    layer_dropout(rate = 0.2) |>
+    layer_flatten() |>
+    layer_dense(units = 32, activation = 'relu') |>
     layer_dense(units = 10, activation = 'softmax')
 
 compile(
@@ -397,7 +399,7 @@ compile(
 fit(
     cnn_model_w_augmentation,
     train_generator,
-    epochs = 50,
+    epochs = 300,
     steps_per_epoch = nrow(data_train_x) / batch_size,  # this does not make a difference here -- batch_size of the generator determines how training works
     validation_data = valid_generator,
     validation_steps = nrow(data_valid_x) / batch_size
@@ -435,10 +437,10 @@ imagenet_model <- application_densenet121(
 ```
 
 ```{r transfer-model-setup}
-transfer_model <- keras_model_sequential() |> 
-    imagenet_model |> 
-    layer_flatten() |> 
-    layer_dense(units = 128, activation = 'relu') |> 
+transfer_model <- keras_model_sequential() |>
+    imagenet_model |>
+    layer_flatten() |>
+    layer_dense(units = 128, activation = 'relu') |>
     layer_dense(units = 10, activation = 'softmax')
 
 compile(
@@ -462,5 +464,3 @@ fit(
     validation_data = list(data_valid_x_reshaped, data_valid_y)
 )
 ```
-
-
