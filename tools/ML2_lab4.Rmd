@@ -1,0 +1,215 @@
+---
+title: "CEU Machine Learning Tools - Session 4"
+author: János Divényi
+output: html_notebook
+---
+
+## Airbnb price prediction
+
+```{r libs}
+library(tidyverse)
+library(h2o)
+library(DALEX)
+library(DALEXtra)
+```
+
+```{r airbnb-data}
+clean_data <- read_csv("../data/airbnb_gabors-data/airbnb_london_workfile_adj_book.csv")
+
+basic_vars <- c(
+    "n_accommodates", "n_beds", "n_days_since",
+    "f_property_type","f_room_type", "f_bathroom", "f_cancellation_policy", "f_bed_type",
+    "f_neighbourhood_cleansed"
+)
+
+amenities <-  grep("^d_.*", names(clean_data), value = TRUE)
+
+working_data <- clean_data |>
+    filter(
+        !is.na(price),
+        n_accommodates < 8,
+        flag_review_scores_rating == 0
+    ) |>
+    select(price, any_of(c("n_review_scores_rating", basic_vars, amenities))) |>
+    mutate(across(starts_with(c("d_", "f_")), factor))
+
+outcome_variable <- "price"
+features <- setdiff(names(working_data), outcome_variable)
+```
+
+
+```{r data-on-h2o}
+h2o.init()
+my_seed <- 20220330
+data_split <- h2o.splitFrame(as.h2o(working_data), ratios = 0.75, seed = my_seed)
+airbnb_train <- data_split[[1]]
+airbnb_holdout <- data_split[[2]]
+```
+```{r}
+linear_model <- h2o.glm(
+    features, outcome_variable,
+    training_frame = airbnb_train,
+    validation_frame = airbnb_holdout,
+    alpha = 1,  # lasso
+    seed = my_seed
+)
+h2o.coef(linear_model)[h2o.coef(linear_model) > 0]
+```
+
+
+```{r}
+h2o.performance(linear_model, valid = TRUE)
+```
+
+
+
+```{r rf-on-h2o}
+rf_model <- h2o.randomForest(
+    features, outcome_variable,
+    training_frame = airbnb_train,
+    validation_frame = airbnb_holdout,
+    seed = my_seed
+)
+```
+
+## Global diagnostics
+
+```{r variable-importance}
+h2o.performance(rf_model, valid = TRUE)
+h2o.varimp(rf_model)
+h2o.varimp_plot(rf_model, num_of_features = 20)
+```
+```{r h2o-explain}
+# gives useful information: residual analysis, variable importance, SHAP Summary, PDP-s -- but hard to customize
+# h2o.explain(rf_model, airbnb_holdout)  # takes a while... 
+```
+
+```{r create-dalex-explainer}
+explainer_rf <- explain_h2o(rf_model, data = airbnb_holdout[features], y = airbnb_holdout[[outcome_variable]])
+class(explainer_rf)
+summary(explainer_rf)
+```
+
+```{r partial-dependence-plot}
+pdp_rf <- model_profile(explainer_rf, variable_type = "numerical")  # takes a while...
+plot(pdp_rf)
+plot(pdp_rf, geom = "points")
+```
+
+
+## Local explanations
+
+```{r instance-of-interest}
+obs_of_interest <- as_tibble(airbnb_holdout)[4575, features] 
+obs_of_interest
+```
+
+### Local Interpretable Model-agnostic Explanation
+
+```{r explain-instance}
+lime_explanation <- predict_surrogate(
+    explainer = explainer_rf,
+    new_observation = obs_of_interest,  # needs to use a normal df not an H2OFrame!
+    type = "lime",
+    n_features = 10,  # default: 4
+    seed = my_seed  # samples for permutations - still not reproducible :(
+)
+plot(lime_explanation)
+```
+Pro:
+
+- model agnostic
+- interpretable
+
+Con:
+
+- approximates the black-box model not the data itself
+- in high-dimensional data, data points are sparse so defining "local neighborhood" may not be straightforward
+
+### Shapley Additive Explanation
+
+```{r shapley}
+# Shapley is most suitable for models with a small or moderate number of explanatory variables
+# time-consuming!!
+# shapley_rf <- predict_parts(
+#     explainer = explainer_rf,
+#     new_observation = obs_of_interest,
+#     type = "shap",
+#     B = 10  # number of random orderings to aggregate (default: 25)
+# )
+# plot(shapley_rf)
+```
+
+Pro:
+
+- model agnostic
+- strong formal foundation derived from the cooperative games theory
+
+Con:
+
+- if the model is not additive, SHAP values can mislead
+- time-consuming for large models
+
+## Intervention
+
+Be careful when you want to use explanations to intervention! For prediction you do not necessarily need causal relationships.
+
+```{r pdp-cancellation}
+plot(model_profile(explainer_rf, variables = "f_cancellation_policy"))
+plot(model_profile(explainer_rf, variables = "n_review_scores_rating", groups = "f_cancellation_policy")) +
+    xlim(80, 100)
+```
+
+
+```{r create-binary-treatment}
+airbnb_train$f_strict_cancellation <- as.factor(airbnb_train$f_cancellation_policy == "strict")
+airbnb_holdout$f_strict_cancellation <- as.factor(airbnb_holdout$f_cancellation_policy == "strict")
+treatment_variable <- "f_strict_cancellation"
+features_base <- setdiff(features, c("f_cancellation_policy", treatment_variable))
+```
+
+```{r double-ML}
+g_h2o <- h2o.randomForest(  # regression problem
+    x = features_base, y = outcome_variable,
+    training_frame = airbnb_train,
+    seed = my_seed
+)
+h2o.performance(g_h2o, airbnb_holdout)
+
+m_h2o <- h2o.xgboost(  # classification problem
+    x = features_base, y = treatment_variable,
+    training_frame = airbnb_train,
+    validation_frame = airbnb_holdout,
+    seed = my_seed
+)
+h2o.performance(m_h2o, airbnb_holdout)
+
+# note the usage of the holdout sample to avoid overfitting
+g_h2o_resid <- as.vector(airbnb_holdout[[outcome_variable]] - predict(g_h2o, airbnb_holdout))
+m_h2o_resid <- as.numeric(as.vector(airbnb_holdout[[treatment_variable]])) - as.vector(predict(m_h2o, airbnb_holdout)$p1)
+summary(lm(g_h2o_resid ~ m_h2o_resid))  # do not consider the standard errors as lm() does not know it uses estimated values instead of true observations (the DoubleML package is able to calculate standard errors)
+```
+
+
+
+
+## Which version to choose?
+
+```{r}
+source("bandit-functions.R")
+VERSION_PROBS <- c(0.1, 0.3, 0.5, 0.7)
+
+n_sim <- 10
+rct_results <- runSimulations(n_sim, "RCT", VERSION_PROBS)
+ect10_results <- runSimulations(n_sim, "ECT", VERSION_PROBS, policy_params = list(explore_until = 10))
+ect50_results <- runSimulations(n_sim, "ECT", VERSION_PROBS, policy_params = list(explore_until = 50))
+eg10_results <- runSimulations(n_sim, "epsGreedy", VERSION_PROBS, policy_params = list(epsilon = 0.1))
+eg50_results <- runSimulations(n_sim, "epsGreedy", VERSION_PROBS, policy_params = list(epsilon = 0.5))
+
+ggplot(ect10_results, aes(x = i, y = showed_version, group = run)) +
+    geom_line(alpha = 0.1)
+ggplot(ect10_results, aes(x = i, y = showed_version, group = run)) +
+    geom_line(alpha = 0.1)
+```
+
+
