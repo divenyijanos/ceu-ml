@@ -11,6 +11,7 @@ library(tidyverse)
 library(h2o)
 library(DALEX)
 library(DALEXtra)
+theme_set(theme_minimal())
 ```
 
 ```{r airbnb-data}
@@ -94,19 +95,24 @@ summary(explainer_rf)
 pdp_rf <- model_profile(explainer_rf, variable_type = "numerical")  # takes a while...
 plot(pdp_rf)
 plot(pdp_rf, geom = "points")
+plot(model_profile(explainer_rf, variables = "n_review_scores_rating")) +
+    xlim(80, 100)
 ```
 
 
 ## Local explanations
 
 ```{r instance-of-interest}
-obs_of_interest <- as_tibble(airbnb_holdout)[4575, features] 
+obs_of_interest <- as_tibble(airbnb_holdout)[4105, features] 
 obs_of_interest
 ```
 
 ### Local Interpretable Model-agnostic Explanation
 
 ```{r explain-instance}
+model_type.dalex_explainer <- DALEXtra::model_type.dalex_explainer
+predict_model.dalex_explainer <- DALEXtra::predict_model.dalex_explainer
+
 lime_explanation <- predict_surrogate(
     explainer = explainer_rf,
     new_observation = obs_of_interest,  # needs to use a normal df not an H2OFrame!
@@ -154,21 +160,17 @@ Con:
 
 Be careful when you want to use explanations to intervention! For prediction you do not necessarily need causal relationships.
 
-```{r pdp-cancellation}
-plot(model_profile(explainer_rf, variables = "f_cancellation_policy"))
-plot(model_profile(explainer_rf, variables = "n_review_scores_rating", groups = "f_cancellation_policy")) +
+```{r pdp-variable-of-interest}
+treatment_variable <- "d_airconditioning"
+pdp_variable <- model_profile(explainer_rf, variables = treatment_variable)
+pdp_variable
+plot(model_profile(explainer_rf, variables = treatment_variable))
+plot(model_profile(explainer_rf, variables = "n_review_scores_rating", groups = treatment_variable)) +
     xlim(80, 100)
 ```
 
-
-```{r create-binary-treatment}
-airbnb_train$f_strict_cancellation <- as.factor(airbnb_train$f_cancellation_policy == "strict")
-airbnb_holdout$f_strict_cancellation <- as.factor(airbnb_holdout$f_cancellation_policy == "strict")
-treatment_variable <- "f_strict_cancellation"
-features_base <- setdiff(features, c("f_cancellation_policy", treatment_variable))
-```
-
 ```{r double-ML}
+features_base <- setdiff(features, treatment_variable)
 g_h2o <- h2o.randomForest(  # regression problem
     x = features_base, y = outcome_variable,
     training_frame = airbnb_train,
@@ -191,25 +193,40 @@ summary(lm(g_h2o_resid ~ m_h2o_resid))  # do not consider the standard errors as
 ```
 
 
-
-
 ## Which version to choose?
 
-```{r}
+```{r bandit-versions}
 source("bandit-functions.R")
 VERSION_PROBS <- c(0.1, 0.3, 0.5, 0.7)
-
-n_sim <- 10
-rct_results <- runSimulations(n_sim, "RCT", VERSION_PROBS)
-ect10_results <- runSimulations(n_sim, "ECT", VERSION_PROBS, policy_params = list(explore_until = 10))
-ect50_results <- runSimulations(n_sim, "ECT", VERSION_PROBS, policy_params = list(explore_until = 50))
+simulateRun("ETC", VERSION_PROBS, sim_length = 200, policy_params = list(explore_until = 100))
+```
+```{r bandit-monte-carlo}
+n_sim <- 100
+etc10_results <- runSimulations(n_sim, "ETC", VERSION_PROBS, policy_params = list(explore_until = 10))
+etc50_results <- runSimulations(n_sim, "ETC", VERSION_PROBS, policy_params = list(explore_until = 50))
+etc80_results <- runSimulations(n_sim, "ETC", VERSION_PROBS, policy_params = list(explore_until = 80))
 eg10_results <- runSimulations(n_sim, "epsGreedy", VERSION_PROBS, policy_params = list(epsilon = 0.1))
+eg30_results <- runSimulations(n_sim, "epsGreedy", VERSION_PROBS, policy_params = list(epsilon = 0.3))
 eg50_results <- runSimulations(n_sim, "epsGreedy", VERSION_PROBS, policy_params = list(epsilon = 0.5))
+ucb_results <- runSimulations(n_sim, "UCB", VERSION_PROBS)
 
-ggplot(ect10_results, aes(x = i, y = showed_version, group = run)) +
-    geom_line(alpha = 0.1)
-ggplot(ect10_results, aes(x = i, y = showed_version, group = run)) +
-    geom_line(alpha = 0.1)
+model_results <- bind_rows(
+    mutate(etc10_results, policy = "ETC10"),
+    mutate(etc30_results, policy = "ETC10"),
+    mutate(etc50_results, policy = "ETC50"),
+    mutate(eg10_results, policy = "EG10"),
+    mutate(eg50_results, policy = "EG50"),
+    mutate(ucb_results, policy = "UCB")
+)
+
+ggplot(model_results, aes(x = i, y = showed_version, group = run)) +
+    geom_line(alpha = 0.1, color = "navy") +
+    facet_wrap(~ policy)
+
+model_results |>
+    group_by(policy, run) |>
+    summarize(conversion_rate = mean(conversion)) |>
+    ggplot(aes(policy, conversion_rate)) + geom_boxplot()
 ```
 
 
