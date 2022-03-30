@@ -18,7 +18,7 @@ applyPolicy <- function(policy, history, version_probs, policy_params) {
         seq_along(version_probs)
     } else {
         n_versions <- length(version_probs)
-        history = switch(policy,
+        switch(policy,
             RCT = applyPolicyRCT(history, n_versions),
             ETC = applyPolicyETC(history, n_versions, policy_params),
             epsGreedy = applyPolicyEpsGreedy(history, n_versions, policy_params),
@@ -39,7 +39,7 @@ applyPolicyETC <- function(history, n_versions, policy_params) {
     if (!"explore_until" %in% names(policy_params)) {
         stop("The policy ETC needs a parameter explore_until in policy_params")
     }
-    if (nrow(history) <= policy_params$explore_until) {
+    if (nrow(history) < policy_params$explore_until) {
         applyPolicyRCT(history, n_versions)
     } else if (nrow(history) == policy_params$explore_until) {
         applyPolicyGreedy(history)
