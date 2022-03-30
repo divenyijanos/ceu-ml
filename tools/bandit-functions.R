@@ -21,7 +21,8 @@ applyPolicy <- function(policy, history, version_probs, policy_params) {
         history = switch(policy,
             RCT = applyPolicyRCT(history, n_versions),
             ETC = applyPolicyETC(history, n_versions, policy_params),
-            epsGreedy = applyPolicyEpsGreedy(history, n_versions, policy_params)
+            epsGreedy = applyPolicyEpsGreedy(history, n_versions, policy_params),
+            UCB = applyPolicyUCB(history)
         )
     }
 }
@@ -47,12 +48,15 @@ applyPolicyETC <- function(history, n_versions, policy_params) {
     )
 }
 
-
 applyPolicyEpsGreedy <- function(history, n_versions, policy_params) {
     if (!"epsilon" %in% names(policy_params)) {
         stop("The policy epsGreedy needs a parameter epsilon in policy_params")
     }
     # extend the policy
+}
+
+applyPolicyUCB <- function(history) {
+    getShowedVersion("ucb", history)
 }
 
 getShowedVersion <- function(rule, history, n_versions = NULL) {
@@ -64,7 +68,11 @@ getShowedVersion <- function(rule, history, n_versions = NULL) {
             slice_sample(n = 1) |>
             pull(showed_version),
         random = sample(seq(n_versions), 1),
-        last_action = tail(history, 1) |> pull(showed_version)
+        last_action = tail(history, 1) |> pull(showed_version),
+        ucb = calculateUCBIndices(history) |>
+            filter(index == max(index)) |>
+            slice_sample(n = 1) |>
+            pull(showed_version)
     )
 }
 
@@ -82,4 +90,21 @@ realizeConversion <- function(showed_versions, version_probs) {
 
 createEmptyHistory <- function() {
     tibble(i = numeric(), showed_version = numeric(), conversion = numeric())
+}
+
+calculateUCBassignment <- function(history) {
+    calculateUCBIndices(history) |>
+        filter(index == max(index)) |>
+        slice_sample(n = 1) |>
+        pull(showed_version)
+}
+
+calculateUCBIndices <- function(history) {
+    group_by(history, showed_version) |>
+        summarise(mean = mean(conversion), n = n()) |>
+        mutate(index = mean + calculateUCBConfidenceWidth(n, sum(n)) * mean * (1 - mean))
+}
+
+calculateUCBConfidenceWidth <- function(n, n_k) {
+    sqrt(2 * log(1 + n * log(n)^2) / n_k)
 }

@@ -103,7 +103,7 @@ plot(model_profile(explainer_rf, variables = "n_review_scores_rating")) +
 ## Local explanations
 
 ```{r instance-of-interest}
-obs_of_interest <- as_tibble(airbnb_holdout)[4105, features] 
+obs_of_interest <- as_tibble(airbnb_holdout)[4105, features]
 obs_of_interest
 ```
 
@@ -117,7 +117,7 @@ lime_explanation <- predict_surrogate(
     explainer = explainer_rf,
     new_observation = obs_of_interest,  # needs to use a normal df not an H2OFrame!
     type = "lime",
-    n_features = 10,  # default: 4
+    n_features = 20,  # default: 4
     seed = my_seed  # samples for permutations - still not reproducible :(
 )
 plot(lime_explanation)
@@ -198,31 +198,40 @@ summary(lm(g_h2o_resid ~ m_h2o_resid))  # do not consider the standard errors as
 ```{r bandit-versions}
 source("bandit-functions.R")
 VERSION_PROBS <- c(0.1, 0.3, 0.5, 0.7)
-simulateRun("ETC", VERSION_PROBS, sim_length = 200, policy_params = list(explore_until = 100))
+simulateRun("ETC", VERSION_PROBS, sim_length = 100, policy_params = list(explore_until = 20))
 ```
 ```{r bandit-monte-carlo}
 n_sim <- 100
 etc10_results <- runSimulations(n_sim, "ETC", VERSION_PROBS, policy_params = list(explore_until = 10))
+etc30_results <- runSimulations(n_sim, "ETC", VERSION_PROBS, policy_params = list(explore_until = 30))
 etc50_results <- runSimulations(n_sim, "ETC", VERSION_PROBS, policy_params = list(explore_until = 50))
-etc80_results <- runSimulations(n_sim, "ETC", VERSION_PROBS, policy_params = list(explore_until = 80))
+etc70_results <- runSimulations(n_sim, "ETC", VERSION_PROBS, policy_params = list(explore_until = 70))
 eg10_results <- runSimulations(n_sim, "epsGreedy", VERSION_PROBS, policy_params = list(epsilon = 0.1))
 eg30_results <- runSimulations(n_sim, "epsGreedy", VERSION_PROBS, policy_params = list(epsilon = 0.3))
 eg50_results <- runSimulations(n_sim, "epsGreedy", VERSION_PROBS, policy_params = list(epsilon = 0.5))
+eg70_results <- runSimulations(n_sim, "epsGreedy", VERSION_PROBS, policy_params = list(epsilon = 0.7))
 ucb_results <- runSimulations(n_sim, "UCB", VERSION_PROBS)
 
 model_results <- bind_rows(
     mutate(etc10_results, policy = "ETC10"),
-    mutate(etc30_results, policy = "ETC10"),
+    mutate(etc30_results, policy = "ETC30"),
     mutate(etc50_results, policy = "ETC50"),
+    mutate(etc70_results, policy = "ETC70"),
     mutate(eg10_results, policy = "EG10"),
+    mutate(eg30_results, policy = "EG30"),
     mutate(eg50_results, policy = "EG50"),
+    mutate(eg70_results, policy = "EG70"),
     mutate(ucb_results, policy = "UCB")
 )
+```
 
+```{r assignment}
 ggplot(model_results, aes(x = i, y = showed_version, group = run)) +
     geom_line(alpha = 0.1, color = "navy") +
     facet_wrap(~ policy)
+```
 
+```{r conversion-rate}
 model_results |>
     group_by(policy, run) |>
     summarize(conversion_rate = mean(conversion)) |>
