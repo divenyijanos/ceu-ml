@@ -218,10 +218,10 @@ model_results <- bind_rows(
     mutate(etc30_results, policy = "ETC30"),
     mutate(etc50_results, policy = "ETC50"),
     mutate(etc70_results, policy = "ETC70"),
-    # mutate(eg10_results, policy = "EG10"),
-    # mutate(eg30_results, policy = "EG30"),
-    # mutate(eg50_results, policy = "EG50"),
-    # mutate(eg70_results, policy = "EG70"),
+    mutate(eg10_results, policy = "EG10"),
+    mutate(eg30_results, policy = "EG30"),
+    mutate(eg50_results, policy = "EG50"),
+    mutate(eg70_results, policy = "EG70"),
     mutate(ucb_results, policy = "UCB")
 )
 ```
@@ -249,4 +249,13 @@ model_results |>
     geom_line()
 ```
 
-
+```{r measure-conversion-rates}
+model_results |>
+    group_by(policy, run, showed_version) |>
+    summarize(conversion_rate = mean(conversion)) |>
+    group_by(policy, showed_version) |>
+    summarize(conversion_rate = mean(conversion_rate)) |>
+    ggplot(aes(as.factor(showed_version), conversion_rate)) + 
+    geom_boxplot() +
+    facet_wrap(~policy)
+```
