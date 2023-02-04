@@ -134,27 +134,27 @@ map(estimated_models, ~as.numeric(predict(.x, newdata = point_to_evaluate)))
 ```
 
 ```{r run-mc-simulation}
-# run the simulation for multiple times (point 5 of the lecture)
+# run the simulation for multiple times (point 5 of the lecture) / replace the NULL with a clever map
 # do not forget to set the seed
-
+simulated_models <- NULL
 ```
 
 
 ```{r check-result}
-str(simulated_models, max.level = 1)
-simulated_models[[1]]
+# str(simulated_models, max.level = 1)
+# simulated_models[[1]]
 ```
 
 ```{r evaluate-at-given-point}
 # Evaluate the models in the (0, 0) point
 # (use a nested map: map over all the simulation runs and evaluate all the estimated models)
-predictions00 <- 
+predictions00 <- NULL
 ```
 
 
 ```{r evaluate-simulation-results-chart}
-pivot_longer(predictions00, cols = everything()) |>
-    ggplot(aes(value, color = name, fill = name)) + geom_density(alpha = 0.5)
+# pivot_longer(predictions00, cols = everything()) |>
+#     ggplot(aes(value, color = name, fill = name)) + geom_density(alpha = 0.5)
 ```
 
 
@@ -168,21 +168,21 @@ pivot_longer(predictions00, cols = everything()) |>
 ```{r evaluate-for-multiple-points}
 points_to_evaluate <- tibble(x1 = seq(0, 1, 0.05), x2 = 0)
 predict(f_hat_x, newdata = points_to_evaluate)
-map(simulated_models[[1]], ~predict(.x, newdata = points_to_evaluate)) |> bind_cols()
+# map(simulated_models[[1]], ~predict(.x, newdata = points_to_evaluate)) |> bind_cols()
 ```
 
 
 ```{r multiple-points-evaluation-with-chart}
-map_df(seq_along(simulated_models[1:100]), ~{
-    i <- .x
-    map(simulated_models[[i]], ~predict(.x, newdata = points_to_evaluate)) |> 
-        bind_cols() |>
-        mutate(simulation_run = i, x1 = points_to_evaluate$x1)
-}) |>
-    pivot_longer(cols = true:full, names_to = "model", values_to = "prediction") |>
-    ggplot(aes(x1, prediction, group = simulation_run, col = model)) +
-        geom_line(alpha = 0.3) +
-        facet_wrap(~ model)
+# map_df(seq_along(simulated_models[1:100]), ~{
+#     i <- .x
+#     map(simulated_models[[i]], ~predict(.x, newdata = points_to_evaluate)) |> 
+#         bind_cols() |>
+#         mutate(simulation_run = i, x1 = points_to_evaluate$x1)
+# }) |>
+#     pivot_longer(cols = true:full, names_to = "model", values_to = "prediction") |>
+#     ggplot(aes(x1, prediction, group = simulation_run, col = model)) +
+#         geom_line(alpha = 0.3) +
+#         facet_wrap(~ model)
 ```
 
 [Bias-variance Shiny App](https://divenyijanos.shinyapps.io/bias-variance-app/)
