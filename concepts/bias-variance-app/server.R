@@ -13,7 +13,7 @@ function(input, output) {
         x <- seq(0, 1, 0.01)
         plot <- ggplot(tibble(x = x, y = f_y_x(x)), aes(x, y)) +
             geom_point(data = values$data, size = 3, alpha = 0.5) +
-            geom_line(size = 1.5, linetype = "dashed") +
+            geom_line(linewidth = 1.5, linetype = "dashed") +
             labs(col = 'Degree of the estimated polynomial') +
             coord_cartesian(ylim = c(-1, 4)) +
             theme(legend.position = "top")
@@ -36,9 +36,6 @@ function(input, output) {
     observeEvent(input$run100, values$n_run <- 100)
     
     observeEvent(c(input$run, input$run100), {
-        message("some of the buttons were clicked")
-        message(paste("value of run:", input$run))
-        message(paste("value of run100:", input$run100))
         for (i in 1:values$n_run) {
             values$data <- generate_data(input$n, as.numeric(input$error_sd))
             errors_so_far <- values$errors
@@ -49,7 +46,6 @@ function(input, output) {
                 `k=1` = f_y_x(x0) - predict(linear_model(values$data), tibble(x = x0)),
                 `k=5` = f_y_x(x0) - predict(quintic_model(values$data), tibble(x = x0))
             )
-            message(paste("number of calculated errors:", nrow(values$errors)))
         }
     }, ignoreInit = TRUE)
 
