@@ -49,9 +49,6 @@ data <- tibble(
     x2 = runif(n),
     y = f_y_x(x1) + rnorm(n)
 )
-```
-
-```{r know-your-data}
 skim(data)
 GGally::ggpairs(data)
 ```
@@ -89,7 +86,6 @@ The map functions in the `purrr` package (part of `tidyverse`) _"transform their
 ```{r calculate-sample-average}
 mean(rnorm(1000))
 ```
-
 ```{r calculate-sample-average-for-different-sizes}
 map(c(5, 10, 20), rnorm)
 ```
@@ -98,27 +94,60 @@ map(c(5, 10, 20), rnorm)
 ```{r calculate-sample-average-mc}
 n <- 100
 n_sim <- 10000
-# use map to generate sample averages of 100 standard normal variables - 10k times
-# plot the sampling distribution
+map_dbl(
+    seq(n_sim),
+    ~mean(rnorm(n))
+) |> 
+    hist(
+        main = glue::glue("Sampling distribution of the mean of {n} standard normal variables"),
+        xlab = ""
+    )
 ```
 
-```{r nested-maps}
+```{r nest-maps}
 sds <- c(1, 5)
-# repeat the previous exercise but know for standard normal AND normal with sd=5 variables
-# nest maps:
-# 1. apply the random number generation and avg calculation to each simulation step
-# 2. apply the simulation to each possible value of sigma
+map(sds, function(s) {
+    map_dbl(
+        seq(n_sim),
+        ~mean(rnorm(n, sd = s))
+    )
+})
+```
 
-# plot the results
+```{r plot-nested-maps}
+map_df(sds, function(s) {
+    tibble(
+        sigma = as.factor(s),
+        sample_avg = map_dbl(
+            seq(n_sim),
+            ~mean(rnorm(n, sd = s))
+        )
+    )
+}) |> ggplot(aes(sample_avg, fill = sigma, color = sigma)) + 
+    geom_density(alpha = 0.5) +
+    labs(
+        title = glue::glue("Sampling distribution of the mean of {n} normal variables"),
+        x = ""
+    )
 ```
 
 ## Simulation
 
 ```{r simulation-function}
 runSimulationStep <- function(n = 100, sd_e = 1) {
-    # Step 1: Simulate the data (points 1-3 of the lecture)
+    # Step 1: Simulate the data
+    data <- tibble(
+        x1 = runif(n),
+        x2 = runif(n),
+        y = f_y_x(x1) + rnorm(n, sd = sd_e)
+    )
     
-    # Step 2: Estimate models (point 4 of the lecture - without evaluating on a given point)
+    # Step 2: Estimation
+    list(
+        true = lm(y ~ x1 + I(x1^2), data),
+        simple = lm(y ~ x1, data),
+        full = lm(y ~ polym(x1, x2, degree = 2, raw = TRUE), data)
+    )
 }
 ```
 
@@ -128,61 +157,98 @@ estimated_models
 ```
 
 ```{r evaluate-simulation-step}
-# (remaining part of point 4 of the lecture)
 point_to_evaluate <- list(x1 = 0, x2 = 0)
 map(estimated_models, ~as.numeric(predict(.x, newdata = point_to_evaluate)))
 ```
 
 ```{r run-mc-simulation}
-# run the simulation for multiple times (point 5 of the lecture) / replace the NULL with a clever map
-# do not forget to set the seed
-simulated_models <- NULL
+set.seed(20230206)
+
+n_sim <- 1000
+simulated_models <- map(seq(n_sim), ~runSimulationStep())
 ```
 
 
 ```{r check-result}
-# str(simulated_models, max.level = 1)
-# simulated_models[[1]]
+str(simulated_models, max.level = 1)
+simulated_models[[1]]
 ```
 
 ```{r evaluate-at-given-point}
-# Evaluate the models in the (0, 0) point
-# (use a nested map: map over all the simulation runs and evaluate all the estimated models)
-predictions00 <- NULL
+predictions00 <- map_df(simulated_models, ~{
+    map(.x, ~as.numeric(predict(.x, newdata = point_to_evaluate))) |> as_tibble()
+})
 ```
 
 
 ```{r evaluate-simulation-results-chart}
-# pivot_longer(predictions00, cols = everything()) |>
-#     ggplot(aes(value, color = name, fill = name)) + geom_density(alpha = 0.5)
+pivot_longer(predictions00, cols = everything()) |>
+    ggplot(aes(value, color = name, fill = name)) + geom_density(alpha = 0.5)
 ```
 
 
 ```{r evaluate-simulation-results-table}
-# Calculate the metrics (point 6 of the lecture)
-
+pivot_longer(predictions00, cols = everything()) |>
+    group_by(name) |>
+    summarise(
+        bias = mean(value) - f_y_x(point_to_evaluate$x1),
+        var = var(value),
+        MSE = mean((value - f_y_x(point_to_evaluate$x1))^2)
+    )
 ```
 
+Note that on average the simpler model gave better predictions than the true model.
+Tip: simulate with `n=500` or `sd_e = 0.1` and compare those results with these.
+Can you explain the difference?
+
 ## Get some intuition for bias-variance trade-off
+
+To get some intuition as to why the simpler (wrong) model performed better, let's take a look at the predictions for different values of $X_1$. Here we take advantage of the fact that the `predict()` function also works with multiple values of the features.
 
 ```{r evaluate-for-multiple-points}
 points_to_evaluate <- tibble(x1 = seq(0, 1, 0.05), x2 = 0)
 predict(f_hat_x, newdata = points_to_evaluate)
-# map(simulated_models[[1]], ~predict(.x, newdata = points_to_evaluate)) |> bind_cols()
 ```
 
-
-```{r multiple-points-evaluation-with-chart}
-# map_df(seq_along(simulated_models[1:100]), ~{
-#     i <- .x
-#     map(simulated_models[[i]], ~predict(.x, newdata = points_to_evaluate)) |> 
-#         bind_cols() |>
-#         mutate(simulation_run = i, x1 = points_to_evaluate$x1)
-# }) |>
-#     pivot_longer(cols = true:full, names_to = "model", values_to = "prediction") |>
-#     ggplot(aes(x1, prediction, group = simulation_run, col = model)) +
-#         geom_line(alpha = 0.3) +
-#         facet_wrap(~ model)
+```{r evaluate-simulation-results-for-multiple-points}
+predictions <- map_df(seq_along(simulated_models[1:50]), function(i) {
+    map(simulated_models[[i]], ~predict(.x, newdata = points_to_evaluate)) |> 
+        bind_cols() |>
+        mutate(simulation_run = i, x1 = points_to_evaluate$x1)
+})
 ```
 
-[Bias-variance Shiny App](https://divenyijanos.shinyapps.io/bias-variance-app/)
+```{r multiple-points-evaluation-chart}
+predictions |>
+    mutate(true_value = f_y_x(x1)) |>
+    pivot_longer(cols = true:full, names_to = "model", values_to = "prediction") |>
+    ggplot(aes(x1, prediction, group = simulation_run, col = model)) +
+        geom_line(alpha = 0.3) +
+        geom_line(aes(y = true_value), color = "black", linetype = "dashed") +
+        facet_wrap(~ model)
+```
+The true relationship is indicated by the dashed line. It is clear that the simple model has no chance of revealing the true relationship, but it is still closer to it on average, since the true model (not to mention the full model) is highly variable.
+
+We could also repeat the previous exercise with `n=1000` as well. More observations give more information so it might be possible to estimate the complex models more accurately. You should be able to see the difference in the following plot.
+
+```{r evaluate-simulation-results-for-multiple-points-with-different-nobs}
+nobs <- c(100, 10000)
+map_df(nobs, function(n) {
+    simulated_models <- map(seq(10), ~runSimulationStep(n = n))
+    map_df(seq_along(simulated_models), function(i) {
+        map(simulated_models[[i]], ~predict(.x, newdata = points_to_evaluate)) |> 
+            bind_cols() |>
+            mutate(n = n, simulation_run = i, x1 = points_to_evaluate$x1)
+    })
+}) |>
+    mutate(true_value = f_y_x(x1)) |>
+    pivot_longer(cols = true:full, names_to = "model", values_to = "prediction") |>
+    ggplot(aes(x1, prediction, group = simulation_run, col = model)) +
+        geom_line(alpha = 0.3) +
+        geom_line(aes(y = true_value), color = "black", linetype = "dashed") +
+        facet_grid(n ~ model, labeller = label_both)
+```
+
+You can play along with this 
+[Shiny App](https://divenyijanos.shinyapps.io/bias-variance-app/) 
+which I put together to illustrate the bias-variance trade-off.
