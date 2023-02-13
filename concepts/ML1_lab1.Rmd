@@ -86,6 +86,7 @@ The map functions in the `purrr` package (part of `tidyverse`) _"transform their
 ```{r calculate-sample-average}
 mean(rnorm(1000))
 ```
+
 ```{r calculate-sample-average-for-different-sizes}
 map(c(5, 10, 20), rnorm)
 ```

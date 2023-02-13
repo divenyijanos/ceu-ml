@@ -26,7 +26,7 @@ f_y_x <- function(x1) {
 
 ```{r generate-data}
 n <- 100
-set.seed(20230213)
+# set.seed(20230213)
 
 data <- tibble(
     x1 = runif(n),
@@ -54,7 +54,8 @@ calculateMSE <- function(prediction, y_exp) {
 map(estimated_models, ~calculateMSE(predict(.x), f_y_x(data$x1)))
 ```
 
-
+socrative.com
+Student login: enter room “CEUML”
 
 # Recap: caret
 
@@ -65,13 +66,16 @@ estimated_models_caret <- list(
         method = "lm",
         trControl = trainControl(method = "none")
     ),
-    # extend
-    full = NA
+    full = train(
+        y ~ polym(x1, x2, degree = 2, raw = TRUE), data, 
+        method = "lm",
+        trControl = trainControl(method = "none")
+    )
 )
 ```
 
 ```{r evaluation-caret}
-map(estimated_models, ~calculateMSE(predict(.x), f_y_x(data$x1)))
+map(estimated_models_caret, ~calculateMSE(predict(.x), f_y_x(data$x1)))
 ```
 
 Let's create the _feature matrix_ beforehand (without the intercept as it will be included automatically in the model building phase).
@@ -166,7 +170,7 @@ first_lasso <- train(
     x = expanded_data, y = data$y,
     method = "glmnet",
     trControl = trainControl(method = "none"),
-    tuneGrid = expand.grid(alpha = 1, lambda = 0.2)
+    tuneGrid = expand.grid(alpha = 1, lambda = 0.1)
 )
 calculateMSE(predict(first_lasso), f_y_x(data$x1))
 ```
@@ -203,7 +207,7 @@ plot(caret_lasso$finalModel, xvar = "lambda")
 # Simulation
 
 ```{r simulation-function}
-runSimulationStep <- function(n = 100, sd_e = 1, lambda = 0.1) {
+runSimulationStep <- function(n = 100, sd_e = 1, lambda = 0.01) {
     # Step 1: Simulate the data
     data <- tibble(
         x1 = runif(n),
