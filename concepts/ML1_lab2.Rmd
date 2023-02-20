@@ -206,13 +206,19 @@ plot(caret_lasso$finalModel, xvar = "lambda")
 
 # Simulation
 
+```{r}
+f2_y_x <- function(x1, x2) {
+    x1^2 - 1.5 * x2
+}
+```
+
 ```{r simulation-function}
 runSimulationStep <- function(n = 100, sd_e = 1, lambda = 0.01) {
     # Step 1: Simulate the data
     data <- tibble(
         x1 = runif(n),
         x2 = runif(n),
-        y = f_y_x(x1) + rnorm(n, sd = sd_e)
+        y = f2_y_x(x1, x2) + rnorm(n, sd = sd_e)
     )
     
     expanded_data <- model.matrix(y ~ polym(x1, x2, degree = 2, raw = TRUE) + 0, data)
@@ -243,7 +249,7 @@ runSimulationStep <- function(n = 100, sd_e = 1, lambda = 0.01) {
     
     # Step 3: Evaluation
     list(
-        mse = map(estimated_models, ~calculateMSE(predict(.x), f_y_x(data$x1))),
+        mse = map(estimated_models, ~calculateMSE(predict(.x), f2_y_x(data$x1, data$x2))),
         lasso_nonzero = lasso_coefs[lasso_coefs != 0]
     )
     
