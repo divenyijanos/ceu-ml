@@ -77,7 +77,7 @@ lasso_models
 predict(lasso_models, feature_matrix)
 ```
 ```{r coefficients-from-glmnet}
-lasso_models$beta
+lasso_models$beta[, 15:20]
 ```
 
 
@@ -87,15 +87,16 @@ lasso_models$df
 
 
 ```{r predict-on-a-given-point}
-point_to_evaluate <- c(x1 = 0, x2 = 0)
+point_to_evaluate <- c(0, 0, 0, 0, 0)  # rep(0, 5)
 predict(lasso_models, point_to_evaluate)
 ```
 
+socrative.com
 
 # Bias-variance simulation by lambda
 
 ```{r simulation-function}
-runSimulationStep <- function(n = 100, sd_e = 1, lambda_values = seq(0, 0.2, 0.01)) {
+runSimulationStep <- function(n = 100, sd_e = 1, lambda_values = seq(0, 0.4, 0.01)) {
     # Step 1: Simulate the data
     data <- tibble(
         x1 = runif(n),
@@ -103,9 +104,8 @@ runSimulationStep <- function(n = 100, sd_e = 1, lambda_values = seq(0, 0.2, 0.0
         y = f_y_x(x1) + rnorm(n, sd = sd_e)
     )
 
-    feature_matrix <- model.matrix(y ~ polym(x1, x2, degree = 2, raw = TRUE) + 0, data)
-    
     # Step 2: Estimation
+    feature_matrix <- model.matrix(y ~ polym(x1, x2, degree = 2, raw = TRUE) + 0, data)
     lasso_models <- glmnet(
         x = feature_matrix, y = data$y,
         alpha = 1, lambda = lambda_values
@@ -128,7 +128,7 @@ runSimulationStep()
 set.seed(20230220)
 
 n_sim <- 1000
-simulated_results <- map_df(seq(n_sim), ~runSimulationStep())
+simulated_results <- map_df(seq(n_sim), ~runSimulationStep(sd_e = 1))
 ```
 
 ```{r visualize-bias-variance}
@@ -147,8 +147,7 @@ group_by(simulated_results, lambda) |>
 group_by(simulated_results, lambda) |>
     summarise(n_nz_coefs = mean(n_nz_coefs)) |>
     ggplot(aes(lambda, n_nz_coefs)) + 
-        geom_line(linewidth = 1) +
-        
+        geom_line(linewidth = 1)
 ```
 
 
