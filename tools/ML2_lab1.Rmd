@@ -1,0 +1,313 @@
+---
+title: "CEU Machine Learning Tools - Session 1"
+author: "János Divényi"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r libs}
+library(tidyverse)
+library(glmnet)
+library(rpart)  # for Tree
+library(ranger)  # for Random Forest
+theme_set(theme_minimal())
+```
+
+## Predict the demand for bike share using known tools
+
+Our goal is to predict demand for bike share based on [this](https://www.kaggle.com/c/bike-sharing-demand) Kaggle task.
+Kaggle provides two data sets: a labelled train data and an unlabelled test data.
+We have to use the train data to predict labels for the test data.
+Kaggle won't give us the labels just a score we achieved on the test set.
+
+Sample set
+
+```{r load-data}
+# kaggle data, the test set cannot be used for our test purposes
+bike_data <- read_csv("../data/bike_sharing_demand/bike_sample.csv")
+skimr::skim(bike_data)
+```
+
+
+```{r create-train-test-split}
+n_obs <- nrow(bike_data)
+test_share <- 0.25
+
+set.seed(20230308)
+test_indices <- sample(seq(n_obs), floor(test_share * n_obs))
+bike_test <- slice(bike_data, test_indices)
+bike_train <- slice(bike_data, -test_indices)
+```
+
+
+Kaggle will use the Root Mean Squared Log Error (RMSLE) to evaluate the predictions.
+It has the advantage that one could interpret this as a relative error
+(as the log difference is very close to the relative difference for small errors).
+
+To avoid our RMSLE throwing an error, we have to ensure that our predictions are never negative.
+In our case, it won't make any sense either, as demand cannot be negative.
+Our models do not know that so we need to adjust negative predictions to zero.
+
+```{r evaluation-function}
+calculateRMSLE <- function(prediction, y_obs) {
+    sqrt(mean((log(ifelse(prediction < 0, 0, prediction) + 1) - log(y_obs + 1))^2))
+}
+```
+
+
+```{r benchmark-models}
+# estimate some benchmark models (avg, median)
+```
+
+
+```{r group-averages}
+group_averages <- lm(
+    count ~ as.factor(season) + as.factor(holiday) + as.factor(workingday), 
+    data = bike_train
+)
+rmsle_results <- add_row(rmsle_results,
+    model = "Group-avg",
+    train = calculateRMSLE(predict(group_averages, bike_train), bike_train$count),
+    test = calculateRMSLE(predict(group_averages, bike_test), bike_test$count)
+)
+rmsle_results
+```
+
+```{r group-averages-with-weather}
+linear <- lm(
+    count ~ as.factor(season) + as.factor(holiday) + as.factor(workingday) + as.factor(weather) + temp + atemp + humidity + windspeed,
+    data = bike_train
+)
+
+rmsle_results <- add_row(rmsle_results,
+    model = "Linear",
+    train = calculateRMSLE(predict(linear), bike_train$count),
+    test = calculateRMSLE(predict(linear, bike_test), bike_test$count)
+)
+rmsle_results
+```
+
+```{r linear-with-4degree-poly}
+linear_poly <- lm(
+    count ~ polym(as.factor(season), as.factor(holiday), as.factor(workingday), as.factor(weather), temp, atemp, humidity, windspeed, raw = TRUE, degree = 4),
+    data = bike_train
+)
+
+rmsle_results <- add_row(rmsle_results,
+    model = "Very flexible linear",
+    train = calculateRMSLE(predict(linear_poly), bike_train$count),
+    test = calculateRMSLE(predict(linear_poly, bike_test), bike_test$count)
+)
+rmsle_results
+```
+
+
+In ML1 we run LASSO regressions using the `glmnet()` function.
+This function expects a matrix parameter that contains the features, and vector parameter for the outcome.
+So we need to create these two parameters from our data to be able to use the `glmnet()` function as we did in ML1.
+The `model.matrix()` function can accomplish what we want: turning a data into a matrix of features based on a formula.
+
+```{r tain-and-estimate-lasso-with-4-degree-poly}
+# Step 1: write a function that takes the df and returns matrix features (use model.matrix() and polym())
+# Step 2: create 4-degree polynomial features from the train set
+# Step 3: train a LASSO model (use cv.glmnet() to find the best lambda via cross-validation)
+# Step 4: evaluate the models on train and test set (use predict(model, features, s = model$lambda.min))
+```
+
+```{r tree}
+tree_model <- rpart(
+    count ~ as.factor(season) + as.factor(holiday) + as.factor(workingday) + as.factor(weather) + temp + atemp + humidity + windspeed,
+    bike_train
+)
+rmsle_results <- add_row(rmsle_results,
+    model = "Tree",
+    train = calculateRMSLE(predict(tree_model), bike_train$count),
+    test = calculateRMSLE(predict(tree_model, newdata = bike_test), bike_test$count)
+)
+rmsle_results
+```
+
+
+## Improve our models
+
+### Diagnostics
+
+```{r create-tibble-from-predictions}
+bike_predictions <- select(bike_test, count) |>
+    mutate(
+        prediction_lm = predict(linear, bike_test),
+        prediction_lasso = lasso_test_predictions,
+        prediction_tree = predict(tree_model, bike_test)
+    )
+```
+
+```{r compare-observed-and-prediction-distributions}
+bike_predictions |>
+    pivot_longer(starts_with("prediction"), names_prefix = "prediction_") |>
+    ggplot() +
+    geom_density(aes(x = value, color = "Prediction"), linewidth = 1) +
+    geom_density(aes(x = count, color = "Observed"), linewidth = 1) +
+    facet_grid(~ name)
+```
+
+
+```{r plot-observed-vs-prediction}
+bike_predictions |>
+    pivot_longer(starts_with("prediction"), names_prefix = "prediction_") |>
+    ggplot(aes(count, value)) +
+    geom_point(alpha = 0.3, size = 2) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "firebrick") +
+    facet_grid(~ name) +
+    labs(x = "Observed", y = "Predicted")
+```
+
+
+We might notice from the plots a particular subset of observations where we have hard time with prediction:
+hours with almost zero demand are usually overpredicted. Let's take a look a them:
+```{r look-at-small-counts}
+filter(bike_train, count <= 20)
+```
+
+We can realize that there is an important piece of information we have not used before: the period of day.
+Demand is close zero between 0 and 5 hour (unsurprisingly). This information was "hidden" in the `datetime` column,
+which is neither a numeric nor a categorical variable so our models were not able to interpret them.
+Let's extract this information by creating some new features. This process is called _feature engineering_.
+
+### Feature engineering: create new variables
+
+```{r feature-engineering}
+createAdditionalFeatures <- function(bike_data) {
+    bike_data |>
+        mutate(
+            month = as.factor(lubridate::month(datetime)),
+            hour = as.factor(lubridate::hour(datetime)),
+            weekday = as.factor(weekdays(datetime)),
+            across(season:weather, as.factor)
+        ) |>
+        select(-datetime, -workingday, -casual, -registered)
+}
+bike_train_plus <- createAdditionalFeatures(bike_train)
+bike_test_plus <- createAdditionalFeatures(bike_test)
+```
+
+```{r lm-on-feature-engineered-data}
+linear_plus <- lm(count ~ ., bike_train_plus)
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng linear",
+    train = calculateRMSLE(predict(linear_plus), bike_train_plus$count),
+    test = calculateRMSLE(predict(linear_plus, bike_test_plus), bike_test_plus$count)
+)
+rmsle_results
+```
+
+```{r lasso-on-feature-engineered-data}
+createPolyFeaturesPlus <- function(df) {
+    model.matrix(
+        count ~ polym(season, holiday, weather, temp, atemp, humidity, windspeed, month, hour, weekday, raw = TRUE, degree = 4),
+        data = df
+    )
+}
+plus_features <- createPolyFeaturesPlus(bike_train_plus)
+lasso_plus <- cv.glmnet(plus_features, bike_train_plus$count, alpha = 1)
+```
+
+```{r evaluate-lasso-plus}
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng LASSO",
+    train = calculateRMSLE(predict(lasso_plus, plus_features, s = lasso$lambda.min), bike_train_plus$count),
+    test = calculateRMSLE(predict(lasso_plus, createPolyFeaturesPlus(bike_test_plus), s = lasso$lambda.min), bike_test_plus$count)
+)
+rmsle_results
+```
+
+
+```{r tree-on-feature-engineered-data}
+tree_plus <- rpart(count ~ ., bike_train_plus)
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng tree",
+    train = calculateRMSLE(predict(tree_plus), bike_train_plus$count),
+    test = calculateRMSLE(predict(tree_plus, bike_test_plus), bike_test_plus$count)
+)
+tail(rmsle_results, 10)
+```
+
+
+### Add more data
+
+Our original data was a 20% sample of the original one. Let's mimic collecting more data by considering the whole sample.
+To ensure that we can compare the results of the larger data to our previous observations
+we have to keep our test data set intact. This can be achieved by taking out the test observations
+from the full data set and using the remaining part as our new train set.
+We implement this operation by using the `anti_join()` function.
+
+```{r load-full-data-set}
+bike_full <- read_csv("../data/bike_sharing_demand/train.csv")
+bike_train_full <- anti_join(bike_full, bike_test)
+```
+
+Our new train set `bike_train_full` is almost 6 times larger than our original one.
+
+```{r lasso-on-full-feature-engineered-data}
+full_plus_features <- createPolyFeaturesPlus(bike_train_full_plus)
+lasso_full_plus <- cv.glmnet(full_plus_features, bike_train_full_plus$count, alpha = 1)
+
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng LASSO large n",
+    train = calculateRMSLE(predict(lasso_full_plus, full_plus_features, s = lasso$lambda.min), bike_train_full_plus$count),
+    test = calculateRMSLE(predict(lasso_full_plus, createPolyFeaturesPlus(bike_test_plus), s = lasso$lambda.min), bike_test_plus$count)
+)
+tail(rmsle_results, 10)
+```
+
+
+```{r tree-on-full-feature-engineered-data}
+tree_full_plus <- rpart(count ~ ., data = bike_train_full_plus)
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng tree large n",
+    train = calculateRMSLE(predict(tree_full_plus), bike_train_full$count),
+    test = calculateRMSLE(predict(tree_full_plus, bike_test_plus), bike_test$count)
+)
+tail(rmsle_results, 10)
+```
+
+Interestingly, our linear models hardly improve when trained on a much bigger dataset.
+This might be caused by the fact that these models are relatively rigid,
+and they could have been estimated quite well on the smaller data set as well.
+
+### Train more flexible models
+
+Let's try some more flexible models now. We expect them to perform better on the test set,
+especially, if they are fed enough data.
+
+```{r rf-feature-engineered-data}
+# estimate a random forest using the ranger() using the original feature engineered data
+# (just call it with the default options without any hyper-parameter tuning)
+# evaluate its performance on train and test sets
+```
+
+```{r rf-on-full-feature-engineered-data}
+# redo the previos task on the full data
+```
+
+
+## Submit to Kaggle
+
+As a last step, let's submit our best model to Kaggle to evaluate its performance on the Kaggle test set.
+We might want to retrain this model using all of the data that is available to us.
+We can expect the final RMSLE on the Kaggle to be somewhat larger than what our test set showed
+even if we use more data to train it. We have two reasons for this:
+First, we used the test set to choose our best model, so it ceased to remain a real hold-out set as our best model depends on it
+(this is a general concern).
+Second, we created our test set just randomly whereas Kaggle assigned the days from the 20th onwards of each month to the test set.
+Thus, our way of choosing the test set was a kind of cheating.
+
+```{r submit-to-kaggle}
+kaggle_test <- read_csv("../data/bike_sharing_demand/test.csv")
+full_train_rf <- ranger(count ~ ., createAdditionalFeatures(bike_full))
+predictions <- predict(full_train_rf, createAdditionalFeatures(kaggle_test))$predictions
+select(kaggle_test, datetime) |>
+    mutate(count = predictions) |>
+    write.csv("../data/bike_sharing_demand/kaggle_submission.csv", row.names = FALSE)
+```
+
