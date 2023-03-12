@@ -57,7 +57,14 @@ calculateRMSLE <- function(prediction, y_obs) {
 
 
 ```{r benchmark-models}
-# estimate some benchmark models (avg, median)
+# estimate some benchmark models (e.g. avg)
+avg <- mean(bike_train$count)
+rmsle_results <- tibble(
+    model = "Avg",
+    train = calculateRMSLE(avg, bike_train$count),
+    test = calculateRMSLE(avg, bike_test$count)
+)
+rmsle_results
 ```
 
 
@@ -101,19 +108,40 @@ rmsle_results <- add_row(rmsle_results,
 )
 rmsle_results
 ```
+Estimating a linear model on a 4th degree polynomial (including interactions) is naturally an extreme. Our evaluation results clearly show that the model overfits the train data (there is a big difference between the train and the test set errors). The overfit is so bad that our test set performance is clearly worse than what our benchmark model achieves. 
 
-
+Let's solve the problem of overfitting with applying some regularization: run a LASSO model on the same data.
 In ML1 we run LASSO regressions using the `glmnet()` function.
-This function expects a matrix parameter that contains the features, and vector parameter for the outcome.
-So we need to create these two parameters from our data to be able to use the `glmnet()` function as we did in ML1.
-The `model.matrix()` function can accomplish what we want: turning a data into a matrix of features based on a formula.
+This function expects a matrix parameter that contains the features, and a vector parameter for the outcome.
+The `cv.glmnet()` finds the best lambda for us by using cross-validation.
 
 ```{r tain-and-estimate-lasso-with-4-degree-poly}
 # Step 1: write a function that takes the df and returns matrix features (use model.matrix() and polym())
+createPolyMatrix <- function(df) {
+    model.matrix(
+        count ~ polym(
+            as.factor(season), as.factor(holiday), as.factor(workingday), as.factor(weather),
+            temp, atemp, humidity, windspeed, 
+            raw = TRUE, degree = 4
+        ), 
+        df
+    )
+}
 # Step 2: create 4-degree polynomial features from the train set
+features <- createPolyMatrix(bike_train)
 # Step 3: train a LASSO model (use cv.glmnet() to find the best lambda via cross-validation)
+lasso <- cv.glmnet(features, bike_train$count, alpha = 1)
 # Step 4: evaluate the models on train and test set (use predict(model, features, s = model$lambda.min))
+lasso_test_predictions <- predict(lasso, createPolyMatrix(bike_test), s = lasso$lambda.min)
+rmsle_results <- add_row(rmsle_results,
+    model = "Lasso",
+    train = calculateRMSLE(predict(lasso, features, s = lasso$lambda.min), bike_train$count),
+    test = calculateRMSLE(lasso_test_predictions, bike_test$count)
+)
+rmsle_results
 ```
+
+The LASSO indeed solved the overfitting problem. With regularization added to flexibility, we could improve our prediction performance even on the test set.
 
 ```{r tree}
 tree_model <- rpart(
@@ -177,15 +205,18 @@ Let's extract this information by creating some new features. This process is ca
 ### Feature engineering: create new variables
 
 ```{r feature-engineering}
-createAdditionalFeatures <- function(bike_data) {
-    bike_data |>
-        mutate(
-            month = as.factor(lubridate::month(datetime)),
-            hour = as.factor(lubridate::hour(datetime)),
-            weekday = as.factor(weekdays(datetime)),
-            across(season:weather, as.factor)
-        ) |>
-        select(-datetime, -workingday, -casual, -registered)
+createAdditionalFeatures <- function(bike_data, drop = TRUE) {
+    new_data <- mutate(bike_data,
+        month = as.factor(lubridate::month(datetime)),
+        hour = as.factor(lubridate::hour(datetime)),
+        weekday = as.factor(weekdays(datetime)),
+        across(season:weather, as.factor)
+    )
+    if (drop) {
+        select(new_data, -datetime, -workingday, -casual, -registered) 
+    } else {
+        new_data
+    }
 }
 bike_train_plus <- createAdditionalFeatures(bike_train)
 bike_test_plus <- createAdditionalFeatures(bike_test)
@@ -220,7 +251,7 @@ rmsle_results <- add_row(rmsle_results,
 )
 rmsle_results
 ```
-
+Interestingly, the simple linear model performs better than the regularized flexible one. The latter might try to achieve too much: it has 1000+ parameters to optimize for.
 
 ```{r tree-on-feature-engineered-data}
 tree_plus <- rpart(count ~ ., bike_train_plus)
@@ -247,6 +278,21 @@ bike_train_full <- anti_join(bike_full, bike_test)
 ```
 
 Our new train set `bike_train_full` is almost 6 times larger than our original one.
+
+```{r feature-eng-full-data}
+bike_train_full_plus <- createAdditionalFeatures(bike_train_full)
+```
+
+
+```{r linear-full}
+linear_full_plus <- lm(count ~ ., bike_train_full_plus)
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng linear large n",
+    train = calculateRMSLE(predict(linear_full_plus), bike_train_full_plus$count),
+    test = calculateRMSLE(predict(linear_full_plus, bike_test_plus), bike_test_plus$count)
+)
+tail(rmsle_results, 10)
+```
 
 ```{r lasso-on-full-feature-engineered-data}
 full_plus_features <- createPolyFeaturesPlus(bike_train_full_plus)
@@ -284,10 +330,26 @@ especially, if they are fed enough data.
 # estimate a random forest using the ranger() using the original feature engineered data
 # (just call it with the default options without any hyper-parameter tuning)
 # evaluate its performance on train and test sets
+rf_plus <- ranger(count ~ ., data = bike_train_plus)
+
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng RF",
+    train = calculateRMSLE(predict(rf_plus, bike_train_plus)$predictions, bike_train_plus$count),
+    test = calculateRMSLE(predict(rf_plus, bike_test_plus)$predictions, bike_test_plus$count)
+)
+tail(rmsle_results, 10)
 ```
 
 ```{r rf-on-full-feature-engineered-data}
 # redo the previos task on the full data
+rf_full_plus <- ranger(count ~ ., data = bike_train_full_plus)
+
+rmsle_results <- add_row(rmsle_results,
+    model = "Feature-eng RF large n",
+    train = calculateRMSLE(predict(rf_full_plus, bike_train_full_plus)$predictions, bike_train_full_plus$count),
+    test = calculateRMSLE(predict(rf_full_plus, bike_test_plus)$predictions, bike_test_plus$count)
+)
+tail(rmsle_results, 10)
 ```
 
 
@@ -295,17 +357,14 @@ especially, if they are fed enough data.
 
 As a last step, let's submit our best model to Kaggle to evaluate its performance on the Kaggle test set.
 We might want to retrain this model using all of the data that is available to us.
-We can expect the final RMSLE on the Kaggle to be somewhat larger than what our test set showed
-even if we use more data to train it. We have two reasons for this:
-First, we used the test set to choose our best model, so it ceased to remain a real hold-out set as our best model depends on it
-(this is a general concern).
+We can expect the final RMSLE on the Kaggle to be somewhat larger than what our test set showed even if we use more data to train it. We have two reasons for this:
+First, we used the test set to choose our best model, so it ceased to remain a real hold-out set as our best model depends on it (this is a general concern).
 Second, we created our test set just randomly whereas Kaggle assigned the days from the 20th onwards of each month to the test set.
 Thus, our way of choosing the test set was a kind of cheating.
 
 ```{r submit-to-kaggle}
 kaggle_test <- read_csv("../data/bike_sharing_demand/test.csv")
-full_train_rf <- ranger(count ~ ., createAdditionalFeatures(bike_full))
-predictions <- predict(full_train_rf, createAdditionalFeatures(kaggle_test))$predictions
+predictions <- predict(rf_full_plus, createAdditionalFeatures(kaggle_test, drop = FALSE))$predictions
 select(kaggle_test, datetime) |>
     mutate(count = predictions) |>
     write.csv("../data/bike_sharing_demand/kaggle_submission.csv", row.names = FALSE)
