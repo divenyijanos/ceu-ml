@@ -1,0 +1,425 @@
+---
+title: "CEU Machine Learning Tools - Session 2"
+author: János Divényi
+output: html_notebook
+---
+
+# Classification problem with h2o: Heart attack
+
+H2O: state-of-the-art machine learning software that is even suitable for big datasets.
+It offers very efficient and scalable implementations of popular ML algorithms that can
+
+* run on distributed systems
+* utilize multiple cores
+* work with GPUs
+
+Models estimated with h2o can be deployed to production environments
+through Java objects (see [here](http://docs.h2o.ai/h2o/latest-stable/h2o-docs/productionizing.html)).
+Also, h2o scales well compared to other competitor implementations
+(see Szilard Pafka's famous benchmarks [here](https://github.com/szilard/benchm-ml)).
+
+In general, best resource to learn is the
+[documentation](http://docs.h2o.ai/h2o/latest-stable/h2o-docs/welcome.html) and many
+tutorials are available on YouTube.
+```{r libs}
+theme_set(theme_minimal())
+library(h2o)
+h2o.init()
+```
+
+We are going to work with a heart disease data set collected from 5 different sources (for more detailed information consult [Kaggle](https://www.kaggle.com/datasets/fedesoriano/heart-failure-prediction)). It contains health condition data about 460 patients and whether they got a heart attack.
+
+Attribute Information:
+- `Age`: age of the patient [years]
+- `Sex`: sex of the patient [M: Male, F: Female]
+- `ChestPainType`: chest pain type [TA: Typical Angina, ATA: Atypical Angina, NAP: Non-Anginal Pain, ASY: Asymptomatic]
+- `RestingBP`: resting blood pressure [mm Hg]
+- `Cholesterol`: serum cholesterol [mm/dl]
+- `FastingBS`: fasting blood sugar [1: if FastingBS > 120 mg/dl, 0: otherwise]
+- `RestingECG`: resting electrocardiogram results [Normal: Normal, ST: having ST-T wave abnormality (T wave inversions and/or ST elevation or depression of > 0.05 mV), LVH: showing probable or definite left ventricular hypertrophy by Estes' criteria]
+- `MaxHR`: maximum heart rate achieved [Numeric value between 60 and 202]
+- `ExerciseAngina`: exercise-induced angina [Y: Yes, N: No]
+- `Oldpeak`: oldpeak = ST [Numeric value measured in depression]
+- `ST_Slope`: the slope of the peak exercise ST segment [Up: upsloping, Flat: flat, Down: downsloping]
+- `HeartDisease`: output class [1: heart disease, 0: Normal]
+    
+```{r data-manipulation}
+# import the dataset directly from GitHub
+data_url <- "https://raw.githubusercontent.com/divenyijanos/ceu-ml/2023/data/heart_failure/heart.csv"
+heart_data <- h2o.importFile(data_url)
+
+summary(heart_data) # categorical variables are already factors
+```
+
+
+```{r data-split}
+my_seed <- 20230315
+heart_data_splits <- h2o.splitFrame(data =  heart_data, ratios = 0.7, seed = my_seed)
+train <- heart_data_splits[[1]]
+test <- heart_data_splits[[2]]
+```
+
+## Basic models
+
+```{r avg-benchmark}
+# Calculate avg for benchmark
+mean(train$HeartDisease)
+```
+Best no-brainer prediction: No heart attack at all
+
+```{r benchmark-accuracy}
+mean(as_tibble(test)$HeartDisease == 0)
+```
+
+```{r benchmark-confusionMatrix}
+table(as_tibble(test)$HeartDisease)
+```
+
+Precision ~ NA
+Recall = 0%
+
+```{r estimate-logit}
+# set the predictor and response columns
+response <- "HeartDisease"
+predictors <- setdiff(names(heart_data), response)
+
+# build a simple GLM model using CV (just for evaluation, no hyperparam tuning yet)
+simple_logit <- h2o.glm(
+    family = "binomial",
+    model_id = "logit",
+    x = predictors,
+    y = response,
+    training_frame = train,
+    lambda = 0,  # no regularization
+    nfolds = 5
+)
+```
+
+```{r look-at-h2o-fit-object}
+simple_logit
+```
+
+```{r predict-h2o}
+logit_predictions <- h2o.predict(object = simple_logit, newdata = test)
+head(logit_predictions)
+```
+
+```{r evaluate-performance}
+logit_performance <- h2o.performance(simple_logit, xval = TRUE)
+h2o.accuracy(logit_performance)
+```
+
+```{r evaluation-plots}
+plot(logit_performance, type = "roc")
+plot(logit_performance, type = "pr")
+```
+
+
+```{r confusion-matrix}
+h2o.confusionMatrix(logit_performance)
+h2o.confusionMatrix(logit_performance, threshold = 0.5)
+```
+
+
+```{r download-model-in-mojo}
+h2o.download_mojo(simple_logit, "tools/")
+```
+
+```{r tree}
+# no dedicated single decision tree algorithm, so run a restricted randomForest:
+#  ntrees = 1, mtries = k and sample_rate = 1 (grow one tree on all the columns using all obs)
+simple_tree <- h2o.randomForest(
+    predictors,
+    response,
+    training_frame = train,
+    model_id = "tree",
+    ntrees = 1, mtries = length(predictors), sample_rate = 1,
+    nfolds = 5,
+    seed = my_seed
+)
+```
+
+```{r print-tree}
+tree_model <- h2o.getModelTree(simple_tree, 1)  # gets the first tree which is the only one now
+cat(tree_model@tree_decision_path)
+```
+
+```{r evaluate-tree}
+h2o.accuracy(h2o.performance(simple_tree)) # for RF, h2o tries to give out-of-bag errors - with sample_rate = 1 there is no observation in the OOB
+h2o.accuracy(h2o.performance(simple_tree, xval = TRUE))
+h2o.predict(simple_tree, test)
+```
+
+```{r random-forest}
+# Estimate a random forest model with the default settings and with my_seed
+# Calculate the accuracy for cv data at the 0.5 cutoff
+# Plot the ROC curve evaluated on the cv data
+```
+
+## Comparison of models using ROC / PR plots
+
+The default ROC plot is nice but is only capable of showing one model. If we want to compare multiple models on the same chart, we should calculate the metrics for varying thresholds. You might implement this using a simple loop on the predictions. Or you can just extract the calculated metrics from the `h2o.performance` object.
+
+```{r extract-metrics}
+getMetricsWithThresholds <- function(model, newdata = NULL, xval = FALSE) {
+    h2o.performance(model, newdata = newdata, xval = xval)@metrics$thresholds_and_metric_scores |>
+        as_tibble() |>
+        mutate(model = model@model_id)
+}
+logit_metrics <- getMetricsWithThresholds(simple_logit, xval = TRUE)
+logit_metrics
+```
+
+Plot ROC curve
+```{r plot-roc}
+plotROC <- function(metrics_df) {
+    ggplot(metrics_df, aes(fpr, tpr, color = model)) +
+        geom_path() +
+        geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+        coord_fixed() +
+        labs(x = "False Positive Rate", y = "True Positive Rate")
+}
+plotROC(logit_metrics)
+```
+
+Plot Precision-Recall curve
+```{r plot-pr}
+plotPR <- function(metrics_df) {
+    ggplot(metrics_df, aes(precision, tpr, color = model)) +  # tpr = recall
+        geom_line() +
+        labs(x = "Precision", y = "Recall (TPR)")
+}
+plotPR(logit_metrics)
+```
+
+```{r compare-models}
+simple_models <- list(simple_logit, simple_rf)
+simple_models_performance <- map_df(simple_models, getMetricsWithThresholds, xval = TRUE)
+plotROC(simple_models_performance)
+plotPR(simple_models_performance)
+```
+
+The more flexible RF model cannot perform any better than the very basic logistic regression. Most probably our data is too small to allow for learning complex patterns.
+
+## Hyper-parameter tuning
+
+```{r rf-grid-search}
+rf_params <- list(
+    ntrees = c(10, 50, 100, 250, 500),
+    mtries = c(3, 6, 11),
+    sample_rate = c(0.2, 0.632, 1),
+    max_depth = c(5, 20, 50)
+)
+
+rf_grid <- h2o.grid(
+    "randomForest", x = predictors, y = response,
+    training_frame = train,
+    grid_id = "rf",
+    nfolds = 5,  # the optimization could be done on OOB samples as well
+    seed = my_seed,
+    hyper_params = rf_params,
+    keep_cross_validation_predictions = TRUE   # save for later use
+)
+```
+
+```{r look-at-tuned-results}
+# Note that if neither cross-validation nor a validation frame is used in the grid search, then the training metrics will display in the "get grid" output. If a validation frame is passed to the grid, and nfolds = 0, then the validation metrics will display. However, if nfolds > 1, then cross-validation metrics will display even if a validation frame is provided (this is our case).
+h2o.getGrid(rf_grid@grid_id, "auc", decreasing = TRUE)
+```
+
+```{r plot-tuned-results}
+h2o.getGrid(rf_grid@grid_id, "auc", decreasing = TRUE)@summary_table |>
+    as_tibble() |>
+    mutate(across(c("auc", names(rf_params)), as.numeric)) |>
+    ggplot(aes(ntrees, auc, color = factor(mtries))) +
+    geom_line() +
+    facet_grid(max_depth ~ sample_rate, labeller = label_both) +
+    theme(legend.position = "bottom") +
+    labs(color = "mtry")
+```
+
+```{r compare-ROC}
+rf_metrics <- map_df(rf_grid@model_ids, ~{
+    getMetricsWithThresholds(h2o.getModel(.), xval = TRUE)
+})
+
+ggplot(rf_metrics, aes(fpr, tpr, group = model)) +
+    geom_path(alpha = 0.1) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    coord_fixed() +
+    labs(x = "False Positive Rate", y = "True Positive Rate")
+```
+
+## Stacking
+
+```{r stacking}
+ensemble_model_grid_rf <- h2o.stackedEnsemble(
+    x = predictors, y = response,
+    training_frame = train,
+    metalearner_algorithm = "glm",  # could try others as well, e.g. "gbm"
+    base_models = rf_grid@model_ids
+)
+ensemble_model_grid_rf
+ensemble_model_grid_rf@model$metalearner_model@model$coefficients_table
+```
+
+```{r roc-with-ensemble}
+ensemble_performance <- getMetricsWithThresholds(ensemble_model_grid_rf, xval = TRUE)
+
+ggplot(rf_metrics, aes(fpr, tpr, group = model)) +
+    geom_path(alpha = 0.1) +
+    geom_path(color = "firebrick", data = ensemble_performance) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+    coord_fixed() +
+    labs(x = "False Positive Rate", y = "True Positive Rate")
+```
+
+
+## XGBoost
+
+A celebrated implementation of the gradient boosting idea. Unfortunately, it does not work on Windows machines.
+
+> "Both xgboost and gbm follows the principle of gradient boosting. There are however, the difference in modeling details. Specifically, xgboost used a more regularized model formalization to control over-fitting, which gives it better performance." (https://xgboost.readthedocs.io/en/latest/tutorials/model.html)
+
+> "XGBoost is not currently supported on Windows or on the new Apple M1 chip" :( (https://docs.h2o.ai/h2o/latest-stable/h2o-docs/data-science/xgboost.html) 
+
+```{r simple-xgboost}
+simple_xgboost <- h2o.xgboost(
+    x = predictors, y = response,
+    model_id = "simple_xgboost",
+    training_frame = train,
+    validation_frame = test,
+    nfolds = 5,
+    score_each_iteration = TRUE, # so that we can look at the scoring history later
+    seed = my_seed
+)
+simple_xgboost
+```
+
+```{r xgboost-score-history}
+xgboost_score_history <- h2o.scoreHistory(simple_xgboost)
+pivot_longer(xgboost_score_history, ends_with("error")) |>
+    ggplot(aes(number_of_trees, value, color = name)) +
+    geom_line()
+```
+
+
+## AutoML
+
+H2O has a built-in autoML feature that can do all the tuning and experimenting for you.
+Can it do better than we did with blood, sweat and tears?
+
+```{r automl}
+automl <- h2o.automl(
+    x = predictors, y = response,
+    training_frame = train,
+    nfolds = 5,
+    sort_metric = "AUC",
+    seed = my_seed,
+    max_runtime_secs = 120 # limit the run-time
+)
+automl
+h2o.auc(h2o.performance(automl@leader, xval = TRUE))
+h2o.model_correlation_heatmap(automl, newdata = train)
+```
+
+# Classify fashion images
+
+The Fashion-MNIST dataset consists of Zalando’s article images. Each example is a 28×28 grayscale image, associated with a label from 10 classes:
+
+1. T-shirt/top
+2. Trouser
+3. Pullover
+4. Dress
+5. Coat
+6. Sandal
+7. Shirt
+8. Sneaker
+9. Bag
+10. Ankle boot
+
+```{r load-fmnist}
+fmnist_data <- read_csv("data/fashion/fashion-mnist_train.csv")
+fmnist_data <- mutate(fmnist_data,
+    label = as.factor(label),
+    across(-label, ~./255)
+)
+```
+
+```{r plot-fashion-data}
+labels <- c("T-shirt/top", "Trouser", "Pullover", "Dress", "Coat", "Sandal", "Shirt", "Sneaker", "Bag", "Ankle boot")
+xy_axis <- as_tibble(expand.grid(x = 1:28, y = 28:1))
+plot_theme <- list(
+    raster = geom_raster(hjust = 0, vjust = 0),
+    gradient_fill = scale_fill_gradient(low = "white", high = "black", guide = "none"),
+    theme = theme(
+        axis.line = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_blank()
+    )
+)
+
+showImages <- function(data, row_indices) {
+    list_of_plots <- map(row_indices, ~{
+        cbind(xy_axis, fill = t(data[.x, -1])) |>
+            ggplot(aes(x, y, fill = fill)) +
+            coord_fixed() +
+            plot_theme +
+            labs(title = labels[data[[.x, 1]]])
+    })
+    do.call(gridExtra::grid.arrange, list_of_plots)
+}
+showImages(fmnist_data, 1:12)
+```
+
+```{r create-h2o-frames}
+# I assign only 10% to training to shorten the training time
+data_split <- h2o.splitFrame(as.h2o(fmnist_data), ratios = 0.1, seed = my_seed)
+fmnist_train <- data_split[[1]]
+fmnist_holdout <- data_split[[2]]
+```
+```{r logit-baseline}
+fmnist_logit <- h2o.glm(
+    x = 2:785,
+    y = "label",
+    training_frame = fmnist_train,
+    validation_frame = fmnist_holdout,
+    model_id = "fmnist_logit",
+    lambda = 0,
+    seed = my_seed
+)
+```
+
+```{r logit-performance}
+# plot the confusion matrix and calculate the mean per class error for the logit
+h2o.confusionMatrix(fmnist_logit, valid = TRUE)
+h2o.mean_per_class_error(fmnist_logit, train = TRUE, valid = TRUE)
+```
+
+```{r simple-dl-on-fashion}
+fmnist_dl_default <- h2o.deeplearning(
+    x = 2:785,
+    y = "label",
+    training_frame = fmnist_train,
+    validation_frame = fmnist_holdout,
+    model_id = "fmnist_dl_default",
+    seed = my_seed  # only reproducible if single threaded
+)
+```
+```{r investigate-h2o-dl}
+fmnist_dl_default
+```
+
+
+```{r evaluate-h2o-dl}
+h2o.confusionMatrix(fmnist_dl_default, valid = TRUE)
+h2o.mean_per_class_error(fmnist_dl_default, train = TRUE, valid = TRUE)
+h2o.scoreHistory(fmnist_dl_default)
+plot(fmnist_dl_default, metric = "classification_error")
+```
