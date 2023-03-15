@@ -323,9 +323,11 @@ h2o.auc(h2o.performance(automl@leader, xval = TRUE))
 h2o.model_correlation_heatmap(automl, newdata = train)
 ```
 
+
+
 # Classify fashion images
 
-The Fashion-MNIST dataset consists of Zalando’s article images. Each example is a 28×28 grayscale image, associated with a label from 10 classes:
+The Fashion-MNIST dataset consists of Zalando’s article images (you can download it from [Kaggle](https://www.kaggle.com/datasets/zalando-research/fashionmnist)). Each example is a 28×28 grayscale image, associated with a label from 10 classes:
 
 1. T-shirt/top
 2. Trouser
