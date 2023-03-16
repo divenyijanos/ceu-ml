@@ -22,8 +22,9 @@ In general, best resource to learn is the
 [documentation](http://docs.h2o.ai/h2o/latest-stable/h2o-docs/welcome.html) and many
 tutorials are available on YouTube.
 ```{r libs}
-theme_set(theme_minimal())
+library(tidyverse)
 library(h2o)
+theme_set(theme_minimal())
 h2o.init()
 ```
 
@@ -49,6 +50,9 @@ data_url <- "https://raw.githubusercontent.com/divenyijanos/ceu-ml/2023/data/hea
 heart_data <- h2o.importFile(data_url)
 
 summary(heart_data) # categorical variables are already factors
+
+heart_data$HeartDisease <- as.factor(heart_data$HeartDisease)
+summary(heart_data)
 ```
 
 
@@ -68,7 +72,7 @@ mean(train$HeartDisease)
 Best no-brainer prediction: No heart attack at all
 
 ```{r benchmark-accuracy}
-mean(as_tibble(test)$HeartDisease == 0)
+mean(test$HeartDisease == 0)
 ```
 
 ```{r benchmark-confusionMatrix}
@@ -106,7 +110,7 @@ head(logit_predictions)
 
 ```{r evaluate-performance}
 logit_performance <- h2o.performance(simple_logit, xval = TRUE)
-h2o.accuracy(logit_performance)
+h2o.accuracy(logit_performance, threshold = 0.3)
 ```
 
 ```{r evaluation-plots}
@@ -120,9 +124,10 @@ h2o.confusionMatrix(logit_performance)
 h2o.confusionMatrix(logit_performance, threshold = 0.5)
 ```
 
+You can download your h2o model in a MOJO/POJO format which is intended to be easily embeddable in any Java environment. Learn more about POJO and MOJO [here](https://docs.h2o.ai/h2o/latest-stable/h2o-docs/productionizing.html) if you are interested.
 
 ```{r download-model-in-mojo}
-h2o.download_mojo(simple_logit, "tools/")
+h2o.download_mojo(simple_logit, ".")
 ```
 
 ```{r tree}
@@ -154,6 +159,18 @@ h2o.predict(simple_tree, test)
 # Estimate a random forest model with the default settings and with my_seed
 # Calculate the accuracy for cv data at the 0.5 cutoff
 # Plot the ROC curve evaluated on the cv data
+simple_rf <- h2o.randomForest(
+    predictors,
+    response,
+    training_frame = train,
+    model_id = "rf",
+    nfolds = 5,
+    seed = my_seed
+)
+simple_rf
+h2o.accuracy(h2o.performance(simple_rf, xval = TRUE), threshold = 0.5)
+h2o.auc(h2o.performance(simple_rf, xval = TRUE))
+plot(h2o.performance(simple_rf, xval = TRUE), type = "roc")
 ```
 
 ## Comparison of models using ROC / PR plots
@@ -174,7 +191,7 @@ Plot ROC curve
 ```{r plot-roc}
 plotROC <- function(metrics_df) {
     ggplot(metrics_df, aes(fpr, tpr, color = model)) +
-        geom_path() +
+        geom_path(linewidth = 1) +
         geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
         coord_fixed() +
         labs(x = "False Positive Rate", y = "True Positive Rate")
@@ -201,6 +218,24 @@ plotPR(simple_models_performance)
 
 The more flexible RF model cannot perform any better than the very basic logistic regression. Most probably our data is too small to allow for learning complex patterns.
 
+```{r random-forest-balanced-sample}
+balanced_rf <- h2o.randomForest(
+    predictors,
+    response,
+    training_frame = train,
+    model_id = "rf_balance",
+    nfolds = 5,
+    balance_classes = TRUE,
+    seed = my_seed
+)
+h2o.auc(h2o.performance(balanced_rf, xval = TRUE))
+map_df(
+    list(simple_logit, simple_rf, balanced_rf), 
+    getMetricsWithThresholds, xval = TRUE
+) |> plotROC()
+```
+
+
 ## Hyper-parameter tuning
 
 ```{r rf-grid-search}
@@ -212,9 +247,10 @@ rf_params <- list(
 )
 
 rf_grid <- h2o.grid(
-    "randomForest", x = predictors, y = response,
+    "randomForest", 
+    x = predictors, y = response,
     training_frame = train,
-    grid_id = "rf",
+    grid_id = "rf_grid",
     nfolds = 5,  # the optimization could be done on OOB samples as well
     seed = my_seed,
     hyper_params = rf_params,
@@ -240,7 +276,7 @@ h2o.getGrid(rf_grid@grid_id, "auc", decreasing = TRUE)@summary_table |>
 
 ```{r compare-ROC}
 rf_metrics <- map_df(rf_grid@model_ids, ~{
-    getMetricsWithThresholds(h2o.getModel(.), xval = TRUE)
+    getMetricsWithThresholds(h2o.getModel(.), newdata = test)
 })
 
 ggplot(rf_metrics, aes(fpr, tpr, group = model)) +
@@ -264,11 +300,11 @@ ensemble_model_grid_rf@model$metalearner_model@model$coefficients_table
 ```
 
 ```{r roc-with-ensemble}
-ensemble_performance <- getMetricsWithThresholds(ensemble_model_grid_rf, xval = TRUE)
+ensemble_performance <- getMetricsWithThresholds(ensemble_model_grid_rf, newdata = test)
 
 ggplot(rf_metrics, aes(fpr, tpr, group = model)) +
     geom_path(alpha = 0.1) +
-    geom_path(color = "firebrick", data = ensemble_performance) +
+    geom_path(color = "firebrick", data = ensemble_performance, linewidth = 1) +
     geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
     coord_fixed() +
     labs(x = "False Positive Rate", y = "True Positive Rate")
@@ -277,7 +313,7 @@ ggplot(rf_metrics, aes(fpr, tpr, group = model)) +
 
 ## XGBoost
 
-A celebrated implementation of the gradient boosting idea. Unfortunately, it does not work on Windows machines.
+A celebrated implementation of the gradient boosting idea.
 
 > "Both xgboost and gbm follows the principle of gradient boosting. There are however, the difference in modeling details. Specifically, xgboost used a more regularized model formalization to control over-fitting, which gives it better performance." (https://xgboost.readthedocs.io/en/latest/tutorials/model.html)
 
@@ -318,6 +354,9 @@ automl <- h2o.automl(
     seed = my_seed,
     max_runtime_secs = 120 # limit the run-time
 )
+```
+
+```{r look-at-automl}
 automl
 h2o.auc(h2o.performance(automl@leader, xval = TRUE))
 h2o.model_correlation_heatmap(automl, newdata = train)
@@ -386,6 +425,7 @@ data_split <- h2o.splitFrame(as.h2o(fmnist_data), ratios = 0.1, seed = my_seed)
 fmnist_train <- data_split[[1]]
 fmnist_holdout <- data_split[[2]]
 ```
+
 ```{r logit-baseline}
 fmnist_logit <- h2o.glm(
     x = 2:785,
@@ -414,6 +454,7 @@ fmnist_dl_default <- h2o.deeplearning(
     seed = my_seed  # only reproducible if single threaded
 )
 ```
+
 ```{r investigate-h2o-dl}
 fmnist_dl_default
 ```
