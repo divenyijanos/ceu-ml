@@ -1,7 +1,11 @@
 ---
 title: "CEU Machine Learning Tools - Session 3"
-author: János Divényi
-output: html_notebook
+author: "János Divényi"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
 ---
 
 ```{r}
@@ -88,8 +92,11 @@ fmnist_logit <- h2o.glm(
 )
 ```
 
+For some reason, accuracy cannot be extracted right away from an h2o multinomial prediction model only a similar metric: mean per-class error. You can see the accuracy though in the bottom right corner of the Confusion Matrix. Comparing it to the mean per-class error makes it clear that these two metrics are practically the same for our problem.
+
 ```{r logit-performance}
 # plot the confusion matrix and calculate the mean per class error for the logit
+h2o.confusionMatrix(fmnist_logit)
 h2o.confusionMatrix(fmnist_logit, valid = TRUE)
 h2o.mean_per_class_error(fmnist_logit, train = TRUE, valid = TRUE)
 ```
@@ -103,7 +110,7 @@ fmnist_dl_default <- h2o.deeplearning(
     model_id = "fmnist_dl_default",
     seed = my_seed  # only reproducible if single threaded
 )
-# 199,210 params = 784 (input features) * 200 (first layer nodes) + 200 (first layer biases) +
+# 199,010 params = 783 (input features) * 200 (first layer nodes) + 200 (first layer biases) +
 #                  + 200 * 200 + 200 (second layer) +
 #                  + 200 * 10 + 10 (output)
 ```
@@ -113,6 +120,7 @@ h2o.confusionMatrix(fmnist_dl_default, valid = TRUE)
 h2o.mean_per_class_error(fmnist_dl_default, train = TRUE, valid = TRUE)
 h2o.scoreHistory(fmnist_dl_default)
 plot(fmnist_dl_default, metric = "classification_error")
+plot(fmnist_dl_default, metric = "logloss")
 ```
 
 ## DL parameters
@@ -151,7 +159,7 @@ fmnist_dl_adjusted <- h2o.deeplearning(
     training_frame = fmnist_train,
     validation_frame = fmnist_holdout,
     model_id = "fmnist_dl_adjusted",
-    hidden = 32,
+    hidden = 16,
     mini_batch_size = 20,
     score_each_iteration = TRUE,
     seed = my_seed
@@ -161,7 +169,7 @@ fmnist_dl_adjusted <- h2o.deeplearning(
 ```{r adjusted-dl-scoring}
 h2o.confusionMatrix(fmnist_dl_adjusted, valid = TRUE)
 h2o.mean_per_class_error(fmnist_dl_adjusted, train = TRUE, valid = TRUE)
-plot(fmnist_dl_adjusted, metric = "classification_error")
+plot(fmnist_dl_adjusted, metric = "logloss")
 ```
 
 ```{r regularize-dl-on-fashion}
@@ -242,7 +250,7 @@ data_valid_y <- to_categorical(tbl_fmnist_holdout$label, 10)
 # train_indices <- sample(small_data_indices, floor(n_rows * 0.8 * 0.1))
 # data_train_x <- array_reshape(fmnist_keras$train$x[train_indices,,]/255, c(length(train_indices), 28*28, 1))
 # data_valid_x <- array_reshape(fmnist_keras$train$x[setdiff(small_data_indices, train_indices),,]/255, c(n_rows - length(train_indices), 28*28, 1))
-# 
+#
 # data_train_y <- to_categorical(fmnist_keras$train$y[train_indices], 10)
 # data_valid_y <- to_categorical(fmnist_keras$train$y[-train_indices], 10)
 ```
@@ -456,7 +464,7 @@ imagenet_model <- application_densenet121(
 
 ```{r transfer-model-setup}
 transfer_model <- keras_model_sequential() |>
-    imagenet_model |>
+    imagenet_model() |>
     layer_flatten() |>
     layer_dense(units = 128, activation = 'relu') |>
     layer_dense(units = 10, activation = 'softmax')
