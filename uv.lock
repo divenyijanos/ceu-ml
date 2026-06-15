@@ -253,9 +253,6 @@ requires-dist = [
 ]
 provides-extras = ["heavy"]
 
-[package.metadata.requires-dev]
-dev = []
-
 [[package]]
 name = "cffi"
 version = "2.0.0"
