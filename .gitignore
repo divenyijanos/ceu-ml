@@ -2,19 +2,10 @@
 *.pdf
 .DS_Store
 */.DS_Store
-data/hotdog
-data/leonardo_rabbit.jpg
 
-# NYC Taxi dataset - students download and generate these
-data/nyc_taxi/train.csv
-data/nyc_taxi/taxi_*.csv
-
+# uv
+.venv/
+.uv/
 
 # internal materials
-CLAUDE.md
-session_mapping.md
-quiz*
-plans/
-experiments/
-
-data/oulad/*
+docs/superpowers/
