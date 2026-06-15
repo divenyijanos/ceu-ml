@@ -23,5 +23,3 @@ heavy = [
     "sentence-transformers",
 ]
 
-[tool.uv]
-dev-dependencies = []
