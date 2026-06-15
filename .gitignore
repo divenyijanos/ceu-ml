@@ -1,11 +1,17 @@
-*-checkpoint.ipynb
+# Jupyter
+.ipynb_checkpoints/
 *.pdf
+
+# macOS
 .DS_Store
 */.DS_Store
 
+# Python
+__pycache__/
+*.pyc
+
 # uv
 .venv/
-.uv/
 
 # internal materials
 docs/superpowers/
