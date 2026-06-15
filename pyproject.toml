@@ -1,0 +1,27 @@
+[project]
+name = "ceu-ml"
+version = "0.1.0"
+description = "Data Science 3: Machine Learning Concepts and Tools — CEU MSc Business Analytics"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "scipy",
+    "scikit-learn",
+    "tensorflow",
+    "xgboost",
+    "jupyter",
+    "ipykernel",
+    "nbconvert",
+]
+
+[project.optional-dependencies]
+heavy = [
+    "tabpfn",
+    "sentence-transformers",
+]
+
+[tool.uv]
+dev-dependencies = []
